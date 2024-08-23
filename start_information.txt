@@ -1,0 +1,22 @@
+Start compression & decompression:
+
+python new_start_compression.py --input_dir ./md5.csv --batch_size 512 --gpu_id 0 --prefix md5 --hidden_dim 256 
+--ffn_dim 4096 --seq_len 8 --learning_rate 1e-3 --vocab_dim 64
+
+--batch_size:       Je größer die Batch, desto schneller wird es berechnet. Benötigt jedoch mehr Speicher.
+
+--gpu_id:           Auswahl der gpu_id.
+
+--prefix:           Präfix für die Ausgabedatei.
+
+--hidden_dim:       Anzahl der Neuronen in den verborgenen Schichten. Eine größere Zahl macht es leistungsfähiger, 
+                    aber auch rechenintensiver.
+
+--ffn_dim:          Größe des FNNs. Je größe die Zahl, desto leistungsfähiger, aber auch rechenintensiver.
+
+--seq_len:          Länge der Eingabesequenzen, die das Modell gleichzeitig verarbeitet. Je höher, desto rechenintensiver.
+
+--learning_rate:    Höhere Lernraten beschleunigen das Training, können es aber instabil machen.
+
+--vocab_dim:        Anzahl der Einträge im Vokabular des Modells. Höhere Dimension erlaubt dem Modell, eine größere Vielfalt Anzahl
+                    an Eingaben zu verarbeiten, benötigt aber auch mehr Speicher & Rechenleistung.

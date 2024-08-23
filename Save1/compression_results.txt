@@ -1,0 +1,8 @@
+Original File Size: 12.28 MB
+Compressed File Size: 2.68 MB
+Compression Ratio: 4.59
+Compression Time: 1761.86 seconds
+Decompression Time: 5352.31 seconds
+Average CPU Usage: 32.52%
+Average Memory Usage: 14443.44 MB
+Average GPU Usage: 87.47%

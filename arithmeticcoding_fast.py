@@ -6,6 +6,10 @@
 # https://github.com/nayuki/Reference-arithmetic-coding
 # 
 import numpy as np
+def patch_asscalar(a):
+    return a.item()
+
+setattr(np, "asscalar", patch_asscalar)
 import sys
 python3 = sys.version_info.major >= 3
 import time

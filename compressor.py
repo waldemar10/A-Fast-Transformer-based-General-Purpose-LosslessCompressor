@@ -103,6 +103,7 @@ def decode(temp_dir, compressed_file, FLAGS, len_series, last):
     
     logits = logits.transpose(1, 2)
     label = torch.from_numpy(series_2d[:, train_index+1:train_index+FLAGS.seq_len+1]).cuda()
+    label = label.type(torch.LongTensor).cuda()
     train_loss = torch.nn.functional.cross_entropy(logits[:, :, -1], label[:, -1], reduction='mean')
     train_loss.backward()
     optimizer.step()
@@ -112,9 +113,9 @@ def decode(temp_dir, compressed_file, FLAGS, len_series, last):
       print(train_index, ":", train_loss.item()/np.log(2))
   
     
-  out = open('tttdecompressed_out', 'w')
+  out = open('tttdecompressed_out', 'w', encoding='utf-8')
   for i in range(len(series_2d)):
-    out.write(utils.decode_tokens(series_2d[i]))
+    out.write(utils.decode_tokens(series_2d[i]).encode('utf-8', errors='ignore').decode('utf-8'))
   
   
   for i in range(bs):
