@@ -1,0 +1,14 @@
+Analysis of Compression and Decompression
+Original File Size: 1.41 MB
+Compressed File Size: 0.54 MB
+Compression Ratio: 2.61
+Encode Time: 100.02 seconds
+Encode CPU Usage: 13.78 %
+Encode Memory Usage: 14143.83 %
+Encode GPU Usage: 77.14 %
+
+Decode Time: 113.99 seconds
+Decode CPU Usage: 10.22 %
+Decode Memory Usage: 13489.37 %
+Decode GPU Usage: 66.01 %
+

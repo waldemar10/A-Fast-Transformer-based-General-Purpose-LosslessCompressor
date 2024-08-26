@@ -4,23 +4,25 @@ import os
 import time
 import utils
 import struct
-from absl import app
-from absl import flags
-from absl import logging
-import shutil
-
+import psutil
 import numpy as np
 import torch
 import torch.nn.functional as F
+import shutil
+import GPUtil
+import threading
 
 import compress_model
 import arithmeticcoding_fast
-import utils
+
+from absl import app
+from absl import flags
+from absl import logging
 
 torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
-os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 torch.set_printoptions(profile="full") 
 FLAGS = flags.FLAGS
 
@@ -52,9 +54,53 @@ flags.DEFINE_integer('vocab_size', 256, 'Vocabulary size of data.')
 flags.DEFINE_string('input_dir', 'aaa', 'input data dir')
 flags.DEFINE_string('prefix', 'text8', 'output dir')
 
+def get_gpu_usage():
+    if torch.cuda.is_available():
+        return torch.cuda.memory_allocated() / 1024**2, torch.cuda.memory_reserved() / 1024**2
+    return 0, 0
+
+def monitor_resources(cpu_usages, memory_usages, gpu_usages, stop_event):
+    while not stop_event.is_set():
+        cpu_percent = psutil.cpu_percent(interval=1)
+        memory_info = psutil.virtual_memory()
+        memory_usage_mb = memory_info.used / (1024 * 1024)
+
+        gpus = GPUtil.getGPUs()
+        gpu_percent = max([gpu.load * 100 for gpu in gpus]) if gpus else 0.0
+
+        cpu_usages.append(cpu_percent)
+        memory_usages.append(memory_usage_mb)
+        gpu_usages.append(gpu_percent)
+
+        time.sleep(0.5)
+
+def log_resource_usage(start_time, phase, file_path, original_size=None, compressed_size=None, 
+                       cpu_usage=None, memory_usage=None, gpu_usage=None):
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+
+    cpu_usage = cpu_usage if cpu_usage is not None else psutil.cpu_percent()
+    mem_usage = memory_usage if memory_usage is not None else psutil.virtual_memory().percent
+
+    with open(file_path, 'a', encoding='utf-8') as f:
+        if original_size is not None and compressed_size is not None:
+            compression_ratio = original_size / compressed_size
+            f.write(f"Original File Size: {original_size / (1024 * 1024):.2f} MB\n")
+            f.write(f"Compressed File Size: {compressed_size / (1024 * 1024):.2f} MB\n")
+            f.write(f"Compression Ratio: {compression_ratio:.2f}\n")
+        f.write(f"{phase} Time: {elapsed_time:.2f} seconds\n")
+        f.write(f"{phase} CPU Usage: {cpu_usage:.2f} %\n")
+        f.write(f"{phase} Memory Usage: {mem_usage:.2f} MB\n")
+        if gpu_usage:
+            f.write(f"{phase} GPU Usage: {gpu_usage:.2f} %\n")
+        f.write("\n")
 
 def decode(temp_dir, compressed_file, FLAGS, len_series, last):
-  
+  cpu_usages, memory_usages, gpu_usages = [], [], []
+  stop_event = threading.Event()
+  monitor_thread = threading.Thread(target=monitor_resources, args=(cpu_usages, memory_usages, gpu_usages, stop_event))
+  monitor_thread.start()
+  start_time = time.time()
   bs = FLAGS.batch_size
 
   iter_num = (len_series - FLAGS.seq_len) // FLAGS.batch_size
@@ -139,85 +185,115 @@ def decode(temp_dir, compressed_file, FLAGS, len_series, last):
     print(utils.decode_tokens(series))
     bitin.close()
     f.close()
+
+    stop_event.set()
+    monitor_thread.join()
+
+    avg_cpu_usage = sum(cpu_usages) / len(cpu_usages) if cpu_usages else 0
+    avg_memory_usage = sum(memory_usages) / len(memory_usages) if memory_usages else 0
+    avg_gpu_usage = sum(gpu_usages) / len(gpu_usages) if gpu_usages else 0
+
+    log_resource_usage(start_time, "Decode", "analysis.txt",original_size=None, compressed_size=None, cpu_usage=avg_cpu_usage,
+                        memory_usage=avg_memory_usage, gpu_usage=avg_gpu_usage)
     return
  
 
 def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data):
-  
-  bs = FLAGS.batch_size
+    cpu_usages, memory_usages, gpu_usages = [], [], []
+    stop_event = threading.Event()
+    monitor_thread = threading.Thread(target=monitor_resources, args=(cpu_usages, memory_usages, gpu_usages, stop_event))
+    monitor_thread.start()
+    start_time = time.time()
+    bs = FLAGS.batch_size
 
-  f = [open(temp_dir+"/"+compressed_file+'.'+str(i),'wb') for i in range(bs)]
-  bitout = [arithmeticcoding_fast.BitOutputStream(f[i]) for i in range(bs)]
-  enc = [arithmeticcoding_fast.ArithmeticEncoder(32, bitout[i]) for i in range(bs)]
-  
-  prob = np.ones(FLAGS.vocab_size)/FLAGS.vocab_size
-  cumul = np.zeros(FLAGS.vocab_size+1, dtype=np.uint64)
-  cumul[1:] = np.cumsum(prob*10000000 + 1)
-  
-  iter_num = len(train_data) // FLAGS.batch_size
-  ind = np.array(range(bs))*iter_num
-  iter_num -= FLAGS.seq_len
-
-  for i in range(bs):
-    for j in range(FLAGS.seq_len):
-      enc[i].write(cumul, series[ind[i]+j])
-  
-  cumul_batch = np.zeros((bs, FLAGS.vocab_size+1), dtype = np.uint64)
-
-  model = compress_model.SLiMPerformer(FLAGS.vocab_size, FLAGS.vocab_dim, FLAGS.hidden_dim,
-                                             FLAGS.n_layers, FLAGS.ffn_dim,
-                                             FLAGS.n_heads, FLAGS.feature_type, FLAGS.compute_type).cuda()
-  print(model)
-  optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate, weight_decay=FLAGS.weight_decay, betas=(.9, .999))
-  print(iter_num)
-  for train_index in range(iter_num):
-    model.train()
-    train_batch = train_data[ind, :]
-    y = train_batch[:, -1]
-    train_batch = torch.from_numpy(train_batch).cuda().long()
+    f = [open(temp_dir+"/"+compressed_file+'.'+str(i),'wb') for i in range(bs)]
+    bitout = [arithmeticcoding_fast.BitOutputStream(f[i]) for i in range(bs)]
+    enc = [arithmeticcoding_fast.ArithmeticEncoder(32, bitout[i]) for i in range(bs)]
     
-    train_loss, logits = model.full_loss(train_batch, with_grad=True)
-    optimizer.step()
-    optimizer.zero_grad(set_to_none=True)
-    
-    logits = logits.transpose(1, 2)
-    prob = logits[:, -1, :]
-    prob = F.softmax(prob, dim=1).detach().cpu().numpy()
-    cumul_batch[:,1:] = np.cumsum(prob*10000000 + 1, axis = 1)
-    
-    for i in range(bs):
-      enc[i].write(cumul_batch[i,:], y[i])
-    
-    ind += 1
-    if train_index % FLAGS.print_step == 0:
-      size = 0
-      for cf in os.listdir(temp_dir):
-        size += os.path.getsize(temp_dir+"/"+cf)
-      print(train_index, ":", train_loss.item()/np.log(2), "size:", size/(1024*1024))
-  
-  for i in range(bs):
-    enc[i].finish()
-    bitout[i].close()
-    f[i].close()
-
-  if last_train_data is not None:
-    print("last series")
-    f = open(temp_dir+"/"+compressed_file+'.last','wb')
-    bitout = arithmeticcoding_fast.BitOutputStream(f)
-    enc = arithmeticcoding_fast.ArithmeticEncoder(32, bitout)
     prob = np.ones(FLAGS.vocab_size)/FLAGS.vocab_size
     cumul = np.zeros(FLAGS.vocab_size+1, dtype=np.uint64)
     cumul[1:] = np.cumsum(prob*10000000 + 1)
-  
-    for j in range(len(last_train_data)):
-      enc.write(cumul, last_train_data[j])
-    print("Last encode part don't need inference.")
-  
-    enc.finish()
-    bitout.close()
-    f.close()
-  
-  return
+    
+    iter_num = len(train_data) // FLAGS.batch_size
+    ind = np.array(range(bs))*iter_num
+    iter_num -= FLAGS.seq_len
+
+    for i in range(bs):
+        for j in range(FLAGS.seq_len):
+            enc[i].write(cumul, series[ind[i]+j])
+    
+    cumul_batch = np.zeros((bs, FLAGS.vocab_size+1), dtype = np.uint64)
+
+    model = compress_model.SLiMPerformer(FLAGS.vocab_size, FLAGS.vocab_dim, FLAGS.hidden_dim,
+                                             FLAGS.n_layers, FLAGS.ffn_dim,
+                                             FLAGS.n_heads, FLAGS.feature_type, FLAGS.compute_type).cuda()
+    print(model)
+    optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate, weight_decay=FLAGS.weight_decay, betas=(.9, .999))
+    print(iter_num)
+    for train_index in range(iter_num):
+        model.train()
+        train_batch = train_data[ind, :]
+        y = train_batch[:, -1]
+        train_batch = torch.from_numpy(train_batch).cuda().long()
+        
+        train_loss, logits = model.full_loss(train_batch, with_grad=True)
+        optimizer.step()
+        optimizer.zero_grad(set_to_none=True)
+        
+        logits = logits.transpose(1, 2)
+        prob = logits[:, -1, :]
+        prob = F.softmax(prob, dim=1).detach().cpu().numpy()
+        cumul_batch[:,1:] = np.cumsum(prob*10000000 + 1, axis = 1)
+        
+        for i in range(bs):
+            enc[i].write(cumul_batch[i,:], y[i])
+        
+        ind += 1
+        if train_index % FLAGS.print_step == 0:
+            size = 0
+            for cf in os.listdir(temp_dir):
+                size += os.path.getsize(temp_dir+"/"+cf)
+            print(train_index, ":", train_loss.item()/np.log(2), "size:", size/(1024*1024))
+    
+    for i in range(bs):
+        enc[i].finish()
+        bitout[i].close()
+        f[i].close()
+
+    if last_train_data is not None:
+        print("last series")
+        f = open(temp_dir+"/"+compressed_file+'.last','wb')
+        bitout = arithmeticcoding_fast.BitOutputStream(f)
+        enc = arithmeticcoding_fast.ArithmeticEncoder(32, bitout)
+        prob = np.ones(FLAGS.vocab_size)/FLAGS.vocab_size
+        cumul = np.zeros(FLAGS.vocab_size+1, dtype=np.uint64)
+        cumul[1:] = np.cumsum(prob*10000000 + 1)
+    
+        for j in range(len(last_train_data)):
+            enc.write(cumul, last_train_data[j])
+        print("Last encode part don't need inference.")
+    
+        enc.finish()
+        bitout.close()
+        f.close()
+    
+    # Compute the size of the compressed file
+    compressed_size = sum(os.path.getsize(temp_dir + "/" + compressed_file + '.' + str(i)) for i in range(bs))
+    if last_train_data is not None:
+        compressed_size += os.path.getsize(temp_dir + "/" + compressed_file + '.last')
+    stop_event.set()
+    monitor_thread.join()
+
+    avg_cpu_usage = sum(cpu_usages) / len(cpu_usages) if cpu_usages else 0
+    avg_memory_usage = sum(memory_usages) / len(memory_usages) if memory_usages else 0
+    avg_gpu_usage = sum(gpu_usages) / len(gpu_usages) if gpu_usages else 0
+
+    input_file_path = FLAGS.input_dir
+    original_size = os.path.getsize(input_file_path)
+    # Log resource usage
+    log_resource_usage(start_time, "Encode", "analysis.txt", original_size=original_size, compressed_size=compressed_size,cpu_usage=avg_cpu_usage,
+                        memory_usage=avg_memory_usage, gpu_usage=avg_gpu_usage)
+    return
     
 def var_int_encode(byte_str_len, f):
   while True:
@@ -242,6 +318,9 @@ def var_int_decode(f):
     return byte_str_len
 
 def main(_):
+
+  with open("analysis.txt", 'w', encoding='utf-8') as f:
+        f.write("Analysis of Compression and Decompression\n")
 
   os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu_id
   np.random.seed(FLAGS.random_seed)
@@ -271,7 +350,7 @@ def main(_):
   else:
     l = total_length // FLAGS.batch_size * FLAGS.batch_size
     encode(temp_dir, compressed_file, FLAGS, series[:l+FLAGS.seq_len], train_data[:l], series[l:])
-  
+
   #Combined compressed results
   f = open(compressed_file+'.combined','wb')
   for i in range(FLAGS.batch_size):
