@@ -41,7 +41,7 @@ print_step = 1000
 # Dataset parameters
 seq_len = 8
 vocab_size = 256
-input_dir = 'aaa'
+input_dir = '/mnt/wordlists/WPA2/tmp/TestData/file_1GB_2'
 prefix = 'text8'
 
 def get_gpu_usage():
