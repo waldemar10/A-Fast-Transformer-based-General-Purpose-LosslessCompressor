@@ -9,50 +9,40 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import shutil
-import GPUtil
+""" import GPUtil """
 import threading
 
 import compress_model
 import arithmeticcoding_fast
-
-from absl import app
-from absl import flags
-from absl import logging
 
 torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 torch.set_printoptions(profile="full") 
-FLAGS = flags.FLAGS
 
-# Model parameters
-flags.DEFINE_integer('batch_size', 512, 'Batch size for training.')
-flags.DEFINE_float('learning_rate', 1e-3, 'Adam Optimizer learning rate.')
-flags.DEFINE_integer('hidden_dim', 256, 'Feature dimension.')
-flags.DEFINE_integer('vocab_dim', 64, 'Feature dimension.')
-flags.DEFINE_integer('n_layers', 1, 'Number of Attention layers.')
-flags.DEFINE_integer('ffn_dim', 4096, 'MLP dimension in model.')
-flags.DEFINE_integer('n_heads', 8, 'Number of heads for attention.')
-flags.DEFINE_string(
-    'feature_type', 'sqr',
-    'Nonlinearity function for feature. Can be relu, elu+1, sqr, favor+, or favor+{int}.'
-)
-flags.DEFINE_enum(
-    'compute_type', 'iter', ['iter', 'ps', 'parallel_ps'],
-    'Which type of method to compute: iter = iterative algorithm, ps = implementation using torch.cumsum, parallel_ps = implementation using custom log prefix sum implementation.'
-)
-flags.DEFINE_float('weight_decay', 0.0, 'Weight decay for regularization.')
+# Model parameters (replacing flags.DEFINE with standard Python variables)
+batch_size = 512
+learning_rate = 1e-3
+hidden_dim = 256
+vocab_dim = 64
+n_layers = 1
+ffn_dim = 4096
+n_heads = 8
+feature_type = 'sqr'  # 'relu', 'elu+1', 'sqr', 'favor+', or 'favor+{int}'
+compute_type = 'iter'  # 'iter', 'ps', 'parallel_ps'
+weight_decay = 0.0
 
 # Training parameters
-flags.DEFINE_string('gpu_id', '0', 'ID of GPU.')
-flags.DEFINE_integer('random_seed', 0, 'Random seed for both Numpy and Torch.')
-flags.DEFINE_integer('print_step', 1000, 'Interval to print metrics.')
+gpu_id = '0'
+random_seed = 0
+print_step = 1000
+
 # Dataset parameters
-flags.DEFINE_integer('seq_len', 8, 'Maximum sequence length (L).')
-flags.DEFINE_integer('vocab_size', 256, 'Vocabulary size of data.')
-flags.DEFINE_string('input_dir', 'aaa', 'input data dir')
-flags.DEFINE_string('prefix', 'text8', 'output dir')
+seq_len = 8
+vocab_size = 256
+input_dir = 'aaa'
+prefix = 'text8'
 
 def get_gpu_usage():
     if torch.cuda.is_available():
@@ -65,8 +55,8 @@ def monitor_resources(cpu_usages, memory_usages, gpu_usages, stop_event):
         memory_info = psutil.virtual_memory()
         memory_usage_mb = memory_info.used / (1024 * 1024)
 
-        gpus = GPUtil.getGPUs()
-        gpu_percent = max([gpu.load * 100 for gpu in gpus]) if gpus else 0.0
+        """ gpus = GPUtil.getGPUs() """
+        gpu_percent = 0.0
 
         cpu_usages.append(cpu_percent)
         memory_usages.append(memory_usage_mb)
@@ -317,96 +307,95 @@ def var_int_decode(f):
         byte_str_len += shift
     return byte_str_len
 
-def main(_):
+def main():
 
-  with open("analysis.txt", 'w', encoding='utf-8') as f:
+    with open("analysis.txt", 'w', encoding='utf-8') as f:
         f.write("Analysis of Compression and Decompression\n")
 
-  os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu_id
-  np.random.seed(FLAGS.random_seed)
-  torch.manual_seed(FLAGS.random_seed)
+    os.environ['CUDA_VISIBLE_DEVICES'] = gpu_id
+    np.random.seed(random_seed)
+    torch.manual_seed(random_seed)
 
-  temp_dir = "{}_{}_{}_{}_bs{}_{}_seq{}_temp".format(FLAGS.prefix, FLAGS.vocab_dim, FLAGS.hidden_dim, FLAGS.ffn_dim, FLAGS.batch_size, FLAGS.n_layers, FLAGS.seq_len)
-  compressed_file = temp_dir.replace("_temp", ".compressed")
-  os.mkdir(temp_dir)
-  print(compressed_file)
-  
-  def strided_app(a, L, S):  # Window len = L, Stride len/stepsize = S
-    nrows = ((a.size - L) // S) + 1
-    n = a.strides[0]
-    return np.lib.stride_tricks.as_strided(a, shape=(nrows, L), strides=(S * n, n))
-  
-  old_seq_len = FLAGS.seq_len
-  FLAGS.seq_len = FLAGS.seq_len*(FLAGS.hidden_dim // FLAGS.vocab_dim)
-  print("FLAGS.seq_len change from {} to {} due to FLAGS.vocab_dim = {} and FLAGS.hidden_dim = {}.".format(old_seq_len, FLAGS.seq_len, FLAGS.vocab_dim, FLAGS.hidden_dim))
-  
-  with open(FLAGS.input_dir, 'rb') as fp:#, encoding='latin-1') as fp:
-    series = np.fromstring(fp.read(), dtype=np.uint8)
-  train_data = strided_app(series, FLAGS.seq_len+1, 1)
-  
-  total_length = len(train_data)
-  if total_length % FLAGS.batch_size == 0:
-    encode(temp_dir, compressed_file, FLAGS, series, train_data, None)
-  else:
-    l = total_length // FLAGS.batch_size * FLAGS.batch_size
-    encode(temp_dir, compressed_file, FLAGS, series[:l+FLAGS.seq_len], train_data[:l], series[l:])
+    temp_dir = "{}_{}_{}_{}_bs{}_{}_seq{}_temp".format(prefix, vocab_dim, hidden_dim, ffn_dim, batch_size, n_layers, seq_len)
+    compressed_file = temp_dir.replace("_temp", ".compressed")
+    os.mkdir(temp_dir)
+    print(compressed_file)
+    
+    def strided_app(a, L, S):  # Window len = L, Stride len/stepsize = S
+        nrows = ((a.size - L) // S) + 1
+        n = a.strides[0]
+        return np.lib.stride_tricks.as_strided(a, shape=(nrows, L), strides=(S * n, n))
+    
+    old_seq_len = seq_len
+    seq_len = seq_len * (hidden_dim // vocab_dim)
+    print(f"seq_len change from {old_seq_len} to {seq_len} due to vocab_dim = {vocab_dim} and hidden_dim = {hidden_dim}.")
+    
+    with open(input_dir, 'rb') as fp:
+        series = np.fromstring(fp.read(), dtype=np.uint8)
+    train_data = strided_app(series, seq_len + 1, 1)
+    
+    total_length = len(train_data)
+    if total_length % batch_size == 0:
+        encode(temp_dir, compressed_file, batch_size, seq_len, hidden_dim, ffn_dim, n_layers, feature_type, compute_type, weight_decay, learning_rate, series, train_data, None)
+    else:
+        l = total_length // batch_size * batch_size
+        encode(temp_dir, compressed_file, batch_size, seq_len, hidden_dim, ffn_dim, n_layers, feature_type, compute_type, weight_decay, learning_rate, series[:l+seq_len], train_data[:l], series[l:])
 
-  #Combined compressed results
-  f = open(compressed_file+'.combined','wb')
-  for i in range(FLAGS.batch_size):
-    f_in = open(temp_dir+'/'+compressed_file+'.'+str(i),'rb')
-    byte_str = f_in.read()
-    byte_str_len = len(byte_str)
-    var_int_encode(byte_str_len, f)
-    f.write(byte_str)
-    f_in.close()
-  
-  if total_length % FLAGS.batch_size != 0:
-    f_in = open(temp_dir+'/'+compressed_file+'.last','rb')
-    byte_str = f_in.read()
-    byte_str_len = len(byte_str)
-    var_int_encode(byte_str_len, f)
-    f.write(byte_str)
-    f_in.close()
-  f.close()
-  
-  total = 0
-  for ff in os.listdir(temp_dir):
-    total += os.path.getsize(temp_dir+'/'+ff)
-  
-  print(total/(1024*1024))
-  
-  #Remove temp file
-  shutil.rmtree(temp_dir)
-  
-  #Decode
-  os.mkdir(temp_dir)
-  
-  #Split compressed file
-  
-  f = open(compressed_file+'.combined','rb')
-  len_series = len(series) 
-  for i in range(FLAGS.batch_size):
-    f_out = open(temp_dir+'/'+compressed_file+'.'+str(i),'wb')
+    # Combined compressed results
+    f = open(compressed_file+'.combined','wb')
+    for i in range(batch_size):
+        f_in = open(temp_dir+'/'+compressed_file+'.'+str(i),'rb')
+        byte_str = f_in.read()
+        byte_str_len = len(byte_str)
+        var_int_encode(byte_str_len, f)
+        f.write(byte_str)
+        f_in.close()
+    
+    if total_length % batch_size != 0:
+        f_in = open(temp_dir+'/'+compressed_file+'.last','rb')
+        byte_str = f_in.read()
+        byte_str_len = len(byte_str)
+        var_int_encode(byte_str_len, f)
+        f.write(byte_str)
+        f_in.close()
+    f.close()
+    
+    total = 0
+    for ff in os.listdir(temp_dir):
+        total += os.path.getsize(temp_dir+'/'+ff)
+    
+    print(total/(1024*1024))
+    
+    # Remove temp file
+    shutil.rmtree(temp_dir)
+    
+    # Decode
+    os.mkdir(temp_dir)
+    
+    # Split compressed file
+    
+    f = open(compressed_file+'.combined','rb')
+    len_series = len(series) 
+    for i in range(batch_size):
+        f_out = open(temp_dir+'/'+compressed_file+'.'+str(i),'wb')
+        byte_str_len = var_int_decode(f)
+        byte_str = f.read(byte_str_len)
+        f_out.write(byte_str)
+        f_out.close()
+    
+    f_out = open(temp_dir+'/'+compressed_file+'.last','wb')
     byte_str_len = var_int_decode(f)
     byte_str = f.read(byte_str_len)
     f_out.write(byte_str)
     f_out.close()
-  
-  f_out = open(temp_dir+'/'+compressed_file+'.last','wb')
-  byte_str_len = var_int_decode(f)
-  byte_str = f.read(byte_str_len)
-  f_out.write(byte_str)
-  f_out.close()
-  f.close()
-  
-  len_series = len(series)
-  if (len_series-FLAGS.seq_len) % FLAGS.batch_size == 0:
-    decode(temp_dir, compressed_file, FLAGS, len_series, 0)
-  else:
-    last_length = (len_series - FLAGS.seq_len) % FLAGS.batch_size + FLAGS.seq_len
-    decode(temp_dir, compressed_file, FLAGS, len_series, last_length)
-  
+    f.close()
+    
+    len_series = len(series)
+    if (len_series-seq_len) % batch_size == 0:
+        decode(temp_dir, compressed_file, batch_size, seq_len, hidden_dim, ffn_dim, n_layers, feature_type, compute_type, weight_decay, learning_rate, len_series, 0)
+    else:
+        last_length = (len_series - seq_len) % batch_size + seq_len
+        decode(temp_dir, compressed_file, batch_size, seq_len, hidden_dim, ffn_dim, n_layers, feature_type, compute_type, weight_decay, learning_rate, len_series, last_length)
 
 if __name__ == '__main__':
-  app.run(main)
+    main()
