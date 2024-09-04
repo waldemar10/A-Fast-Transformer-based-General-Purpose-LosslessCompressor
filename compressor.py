@@ -130,7 +130,9 @@ def decode(temp_dir, compressed_file, FLAGS, len_series, last):
   torch.manual_seed(FLAGS.random_seed)
 
   model = compress_model.SLiMPerformer(FLAGS.vocab_size, FLAGS.vocab_dim, FLAGS.hidden_dim,FLAGS.n_layers, FLAGS.ffn_dim,FLAGS.n_heads, FLAGS.feature_type, FLAGS.compute_type).cuda()
+  print("torch.cuda.device_count() "+torch.cuda.device_count())
   if torch.cuda.device_count() > 1: 
+      print("Multi-GPU Decode")
       model = torch.nn.DataParallel(model) 
   print(model)
 
@@ -230,7 +232,9 @@ def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data
     model = compress_model.SLiMPerformer(FLAGS.vocab_size, FLAGS.vocab_dim, FLAGS.hidden_dim,
                                              FLAGS.n_layers, FLAGS.ffn_dim,
                                              FLAGS.n_heads, FLAGS.feature_type, FLAGS.compute_type).cuda()
+    print("torch.cuda.device_count() "+torch.cuda.device_count())
     if torch.cuda.device_count() > 1: 
+      print("Multi-GPU")
       model = torch.nn.DataParallel(model) 
     print(model)
     optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate, weight_decay=FLAGS.weight_decay, betas=(.9, .999))
