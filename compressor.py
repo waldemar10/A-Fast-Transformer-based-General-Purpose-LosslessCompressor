@@ -8,6 +8,7 @@ import psutil
 import numpy as np
 import torch
 import torch.nn.functional as F
+import torch.nn as nn
 import shutil
 import GPUtil
 import threading
@@ -129,6 +130,8 @@ def decode(temp_dir, compressed_file, FLAGS, len_series, last):
   torch.manual_seed(FLAGS.random_seed)
 
   model = compress_model.SLiMPerformer(FLAGS.vocab_size, FLAGS.vocab_dim, FLAGS.hidden_dim,FLAGS.n_layers, FLAGS.ffn_dim,FLAGS.n_heads, FLAGS.feature_type, FLAGS.compute_type).cuda()
+  if torch.cuda.device_count() > 1: 
+      model = torch.nn.DataParallel(model) 
   print(model)
 
   optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate, weight_decay=FLAGS.weight_decay, betas=(.9, .999))
@@ -193,8 +196,8 @@ def decode(temp_dir, compressed_file, FLAGS, len_series, last):
     avg_memory_usage = sum(memory_usages) / len(memory_usages) if memory_usages else 0
     avg_gpu_usage = sum(gpu_usages) / len(gpu_usages) if gpu_usages else 0
 
-    log_resource_usage(start_time, "Decode", "analysis.txt",original_size=None, compressed_size=None, cpu_usage=avg_cpu_usage,
-                        memory_usage=avg_memory_usage, gpu_usage=avg_gpu_usage)
+    log_resource_usage(start_time, "Decode", "analysis.txt", original_size=None, compressed_size=None, cpu_usage=avg_cpu_usage,
+                    memory_usage=avg_memory_usage, gpu_usage=avg_gpu_usage)
     return
  
 
@@ -227,6 +230,8 @@ def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data
     model = compress_model.SLiMPerformer(FLAGS.vocab_size, FLAGS.vocab_dim, FLAGS.hidden_dim,
                                              FLAGS.n_layers, FLAGS.ffn_dim,
                                              FLAGS.n_heads, FLAGS.feature_type, FLAGS.compute_type).cuda()
+    if torch.cuda.device_count() > 1: 
+      model = torch.nn.DataParallel(model) 
     print(model)
     optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate, weight_decay=FLAGS.weight_decay, betas=(.9, .999))
     print(iter_num)
@@ -284,6 +289,7 @@ def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data
     stop_event.set()
     monitor_thread.join()
 
+    
     avg_cpu_usage = sum(cpu_usages) / len(cpu_usages) if cpu_usages else 0
     avg_memory_usage = sum(memory_usages) / len(memory_usages) if memory_usages else 0
     avg_gpu_usage = sum(gpu_usages) / len(gpu_usages) if gpu_usages else 0
@@ -291,7 +297,7 @@ def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data
     input_file_path = FLAGS.input_dir
     original_size = os.path.getsize(input_file_path)
     # Log resource usage
-    log_resource_usage(start_time, "Encode", "analysis.txt", original_size=original_size, compressed_size=compressed_size,cpu_usage=avg_cpu_usage,
+    log_resource_usage(start_time, "Encode", "analysis.txt", original_size=original_size, compressed_size=compressed_size, cpu_usage=avg_cpu_usage,
                         memory_usage=avg_memory_usage, gpu_usage=avg_gpu_usage)
     return
     
