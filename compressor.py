@@ -41,12 +41,13 @@ print_step = 1000
 # Dataset parameters
 seq_len = 8
 vocab_size = 256
-input_dir = '/mnt/wordlists/WPA2/tmp/TestData/file_1GB_2'
+""" input_dir = '/mnt/wordlists/WPA2/tmp/TestData/file_1GB_2' """
+input_dir = 'md5v2.csv'
 prefix = 'text8'
 
 def get_gpu_usage():
-    if torch.cuda.is_available():
-        return torch.cuda.memory_allocated() / 1024**2, torch.cuda.memory_reserved() / 1024**2
+    """ if torch.cuda.is_available():
+        return torch.cuda.memory_allocated() / 1024**2, torch.cuda.memory_reserved() / 1024**2 """
     return 0, 0
 
 def monitor_resources(cpu_usages, memory_usages, gpu_usages, stop_event):
@@ -85,96 +86,93 @@ def log_resource_usage(start_time, phase, file_path, original_size=None, compres
             f.write(f"{phase} GPU Usage: {gpu_usage:.2f} %\n")
         f.write("\n")
 
-def decode(temp_dir, compressed_file, FLAGS, len_series, last):
-  cpu_usages, memory_usages, gpu_usages = [], [], []
-  stop_event = threading.Event()
-  monitor_thread = threading.Thread(target=monitor_resources, args=(cpu_usages, memory_usages, gpu_usages, stop_event))
-  monitor_thread.start()
-  start_time = time.time()
-  bs = FLAGS.batch_size
+def decode(temp_dir, compressed_file, batch_size, seq_len, vocab_size, vocab_dim, hidden_dim, n_layers, ffn_dim, n_heads, feature_type, compute_type, learning_rate, weight_decay, gpu_id, random_seed, len_series, last, print_step):
+    cpu_usages, memory_usages, gpu_usages = [], [], []
+    stop_event = threading.Event()
+    monitor_thread = threading.Thread(target=monitor_resources, args=(cpu_usages, memory_usages, gpu_usages, stop_event))
+    monitor_thread.start()
+    start_time = time.time()
+    bs = batch_size
 
-  iter_num = (len_series - FLAGS.seq_len) // FLAGS.batch_size
-  
-  ind = np.array(range(bs))*iter_num
-  print(iter_num - FLAGS.seq_len)
-  series_2d = np.zeros((bs,iter_num), dtype = np.uint8).astype('int')
+    iter_num = (len_series - seq_len) // batch_size
+    ind = np.array(range(bs)) * iter_num
+    print(iter_num - seq_len)
+    series_2d = np.zeros((bs, iter_num), dtype=np.uint8).astype('int')
 
-  f = [open(temp_dir+"/"+compressed_file+'.'+str(i),'rb') for i in range(bs)]
-  bitin = [arithmeticcoding_fast.BitInputStream(f[i]) for i in range(bs)]
-  dec = [arithmeticcoding_fast.ArithmeticDecoder(32, bitin[i]) for i in range(bs)]
+    f = [open(f"{temp_dir}/{compressed_file}.{i}", 'rb') for i in range(bs)]
+    bitin = [arithmeticcoding_fast.BitInputStream(f[i]) for i in range(bs)]
+    dec = [arithmeticcoding_fast.ArithmeticDecoder(32, bitin[i]) for i in range(bs)]
 
-  prob = np.ones(FLAGS.vocab_size)/FLAGS.vocab_size
-  cumul = np.zeros(FLAGS.vocab_size+1, dtype = np.uint64)
-  cumul[1:] = np.cumsum(prob*10000000 + 1)
+    prob = np.ones(vocab_size) / vocab_size
+    cumul = np.zeros(vocab_size + 1, dtype=np.uint64)
+    cumul[1:] = np.cumsum(prob * 10000000 + 1)
 
-  # Decode first K symbols in each stream with uniform probabilities
-  for i in range(bs):
-    for j in range(min(FLAGS.seq_len, iter_num)):
-      series_2d[i,j] = dec[i].read(cumul, FLAGS.vocab_size)
-  
-  cumul_batch = np.zeros((bs, FLAGS.vocab_size+1), dtype = np.uint64)
-
-  os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu_id
-  np.random.seed(FLAGS.random_seed)
-  torch.manual_seed(FLAGS.random_seed)
-
-  model = compress_model.SLiMPerformer(FLAGS.vocab_size, FLAGS.vocab_dim, FLAGS.hidden_dim,FLAGS.n_layers, FLAGS.ffn_dim,FLAGS.n_heads, FLAGS.feature_type, FLAGS.compute_type).cuda()
-  print(model)
-
-  optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate, weight_decay=FLAGS.weight_decay, betas=(.9, .999))
-
-  training_start = time.time()
-  for train_index in range(iter_num-FLAGS.seq_len):
-    model.train()
-    train_batch = torch.LongTensor(series_2d[:, train_index:train_index + FLAGS.seq_len]).cuda()
-    logits = model.forward(train_batch)
-    prob = logits[:, -1, :]
-    prob = F.softmax(prob, dim=1).detach().cpu().numpy()
-    
-    cumul_batch[:,1:] = np.cumsum(prob*10000000 + 1, axis = 1)
-
-    # Decode with Arithmetic Encoder
+    # Decode first K symbols in each stream with uniform probabilities
     for i in range(bs):
-      series_2d[i,train_index+FLAGS.seq_len] = dec[i].read(cumul_batch[i,:], FLAGS.vocab_size)
-    
-    logits = logits.transpose(1, 2)
-    label = torch.from_numpy(series_2d[:, train_index+1:train_index+FLAGS.seq_len+1]).cuda()
-    label = label.type(torch.LongTensor).cuda()
-    train_loss = torch.nn.functional.cross_entropy(logits[:, :, -1], label[:, -1], reduction='mean')
-    train_loss.backward()
-    optimizer.step()
-    optimizer.zero_grad(set_to_none=True)
-    
-    if train_index % FLAGS.print_step == 0:
-      print(train_index, ":", train_loss.item()/np.log(2))
-  
-    
-  out = open('tttdecompressed_out', 'w', encoding='utf-8')
-  for i in range(len(series_2d)):
-    out.write(utils.decode_tokens(series_2d[i]).encode('utf-8', errors='ignore').decode('utf-8'))
-  
-  
-  for i in range(bs):
-    bitin[i].close()
-    f[i].close()
+        for j in range(min(seq_len, iter_num)):
+            series_2d[i, j] = dec[i].read(cumul, vocab_size)
 
-  if last:
-    series = np.zeros(last, dtype = np.uint8).astype('int')
-    f = open(temp_dir+"/"+compressed_file+'.last','rb')
-    bitin = arithmeticcoding_fast.BitInputStream(f)
-    dec = arithmeticcoding_fast.ArithmeticDecoder(32, bitin)
-    prob = np.ones(FLAGS.vocab_size)/FLAGS.vocab_size
-    cumul = np.zeros(FLAGS.vocab_size+1, dtype=np.uint64)
-    cumul[1:] = np.cumsum(prob*10000000 + 1)
+    cumul_batch = np.zeros((bs, vocab_size + 1), dtype=np.uint64)
 
-    for j in range(last):
-      series[j] = dec.read(cumul, FLAGS.vocab_size)
-  
-    print("Last decode part don't need inference.")
-    out.write(utils.decode_tokens(series))
-    print(utils.decode_tokens(series))
-    bitin.close()
-    f.close()
+    os.environ['CUDA_VISIBLE_DEVICES'] = gpu_id
+    np.random.seed(random_seed)
+    torch.manual_seed(random_seed)
+
+    model = compress_model.SLiMPerformer(vocab_size, vocab_dim, hidden_dim, n_layers, ffn_dim, n_heads, feature_type, compute_type).cuda()
+    print(model)
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay, betas=(.9, .999))
+
+    training_start = time.time()
+    for train_index in range(iter_num - seq_len):
+        model.train()
+        train_batch = torch.LongTensor(series_2d[:, train_index:train_index + seq_len]).cuda()
+        logits = model.forward(train_batch)
+        prob = logits[:, -1, :]
+        prob = F.softmax(prob, dim=1).detach().cpu().numpy()
+
+        cumul_batch[:, 1:] = np.cumsum(prob * 10000000 + 1, axis=1)
+
+        # Decode with Arithmetic Encoder
+        for i in range(bs):
+            series_2d[i, train_index + seq_len] = dec[i].read(cumul_batch[i, :], vocab_size)
+
+        logits = logits.transpose(1, 2)
+        label = torch.from_numpy(series_2d[:, train_index + 1:train_index + seq_len + 1]).cuda()
+        label = label.type(torch.LongTensor).cuda()
+        train_loss = torch.nn.functional.cross_entropy(logits[:, :, -1], label[:, -1], reduction='mean')
+        train_loss.backward()
+        optimizer.step()
+        optimizer.zero_grad(set_to_none=True)
+
+        if train_index % print_step == 0:
+            print(train_index, ":", train_loss.item() / np.log(2))
+
+    out = open('tttdecompressed_out', 'w', encoding='utf-8')
+    for i in range(len(series_2d)):
+        out.write(utils.decode_tokens(series_2d[i]).encode('utf-8', errors='ignore').decode('utf-8'))
+
+    for i in range(bs):
+        bitin[i].close()
+        f[i].close()
+
+    if last:
+        series = np.zeros(last, dtype=np.uint8).astype('int')
+        f = open(f"{temp_dir}/{compressed_file}.last", 'rb')
+        bitin = arithmeticcoding_fast.BitInputStream(f)
+        dec = arithmeticcoding_fast.ArithmeticDecoder(32, bitin)
+        prob = np.ones(vocab_size) / vocab_size
+        cumul = np.zeros(vocab_size + 1, dtype=np.uint64)
+        cumul[1:] = np.cumsum(prob * 10000000 + 1)
+
+        for j in range(last):
+            series[j] = dec.read(cumul, vocab_size)
+
+        print("Last decode part doesn't need inference.")
+        out.write(utils.decode_tokens(series))
+        print(utils.decode_tokens(series))
+        bitin.close()
+        f.close()
 
     stop_event.set()
     monitor_thread.join()
@@ -183,43 +181,42 @@ def decode(temp_dir, compressed_file, FLAGS, len_series, last):
     avg_memory_usage = sum(memory_usages) / len(memory_usages) if memory_usages else 0
     avg_gpu_usage = sum(gpu_usages) / len(gpu_usages) if gpu_usages else 0
 
-    log_resource_usage(start_time, "Decode", "analysis.txt",original_size=None, compressed_size=None, cpu_usage=avg_cpu_usage,
-                        memory_usage=avg_memory_usage, gpu_usage=avg_gpu_usage)
+    log_resource_usage(start_time, "Decode", "analysis.txt", original_size=None, compressed_size=None, cpu_usage=avg_cpu_usage,
+                       memory_usage=avg_memory_usage, gpu_usage=avg_gpu_usage)
     return
+
  
 
-def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data):
+def encode(temp_dir, compressed_file, batch_size, seq_len, hidden_dim, ffn_dim, n_layers, feature_type, compute_type, weight_decay, learning_rate, series, train_data, last_train_data):
+    
     cpu_usages, memory_usages, gpu_usages = [], [], []
     stop_event = threading.Event()
     monitor_thread = threading.Thread(target=monitor_resources, args=(cpu_usages, memory_usages, gpu_usages, stop_event))
     monitor_thread.start()
     start_time = time.time()
-    bs = FLAGS.batch_size
+    bs = batch_size
 
-    f = [open(temp_dir+"/"+compressed_file+'.'+str(i),'wb') for i in range(bs)]
+    f = [open(temp_dir + "/" + compressed_file + '.' + str(i), 'wb') for i in range(bs)]
     bitout = [arithmeticcoding_fast.BitOutputStream(f[i]) for i in range(bs)]
     enc = [arithmeticcoding_fast.ArithmeticEncoder(32, bitout[i]) for i in range(bs)]
     
-    prob = np.ones(FLAGS.vocab_size)/FLAGS.vocab_size
-    cumul = np.zeros(FLAGS.vocab_size+1, dtype=np.uint64)
-    cumul[1:] = np.cumsum(prob*10000000 + 1)
+    prob = np.ones(256) / 256  # Angenommener Wert für FLAGS.vocab_size = 256
+    cumul = np.zeros(256 + 1, dtype=np.uint64)
+    cumul[1:] = np.cumsum(prob * 10000000 + 1)
     
-    iter_num = len(train_data) // FLAGS.batch_size
-    ind = np.array(range(bs))*iter_num
-    iter_num -= FLAGS.seq_len
+    iter_num = len(train_data) // bs
+    ind = np.array(range(bs)) * iter_num
+    iter_num -= seq_len
 
     for i in range(bs):
-        for j in range(FLAGS.seq_len):
-            enc[i].write(cumul, series[ind[i]+j])
+        for j in range(seq_len):
+            enc[i].write(cumul, series[ind[i] + j])
     
-    cumul_batch = np.zeros((bs, FLAGS.vocab_size+1), dtype = np.uint64)
+    cumul_batch = np.zeros((bs, 256 + 1), dtype=np.uint64)
 
-    model = compress_model.SLiMPerformer(FLAGS.vocab_size, FLAGS.vocab_dim, FLAGS.hidden_dim,
-                                             FLAGS.n_layers, FLAGS.ffn_dim,
-                                             FLAGS.n_heads, FLAGS.feature_type, FLAGS.compute_type).cuda()
-    print(model)
-    optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate, weight_decay=FLAGS.weight_decay, betas=(.9, .999))
-    print(iter_num)
+    model = compress_model.SLiMPerformer(256, 64, hidden_dim, n_layers, ffn_dim, 8, feature_type, compute_type).cuda()
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay, betas=(.9, .999))
+    
     for train_index in range(iter_num):
         model.train()
         train_batch = train_data[ind, :]
@@ -233,17 +230,17 @@ def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data
         logits = logits.transpose(1, 2)
         prob = logits[:, -1, :]
         prob = F.softmax(prob, dim=1).detach().cpu().numpy()
-        cumul_batch[:,1:] = np.cumsum(prob*10000000 + 1, axis = 1)
+        cumul_batch[:, 1:] = np.cumsum(prob * 10000000 + 1, axis=1)
         
         for i in range(bs):
-            enc[i].write(cumul_batch[i,:], y[i])
+            enc[i].write(cumul_batch[i, :], y[i])
         
         ind += 1
-        if train_index % FLAGS.print_step == 0:
+        if train_index % 1000 == 0:  # Angenommener Wert für FLAGS.print_step = 1000
             size = 0
             for cf in os.listdir(temp_dir):
-                size += os.path.getsize(temp_dir+"/"+cf)
-            print(train_index, ":", train_loss.item()/np.log(2), "size:", size/(1024*1024))
+                size += os.path.getsize(temp_dir + "/" + cf)
+            print(train_index, ":", train_loss.item() / np.log(2), "size:", size / (1024 * 1024))
     
     for i in range(bs):
         enc[i].finish()
@@ -251,23 +248,19 @@ def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data
         f[i].close()
 
     if last_train_data is not None:
-        print("last series")
-        f = open(temp_dir+"/"+compressed_file+'.last','wb')
+        f = open(temp_dir + "/" + compressed_file + '.last', 'wb')
         bitout = arithmeticcoding_fast.BitOutputStream(f)
         enc = arithmeticcoding_fast.ArithmeticEncoder(32, bitout)
-        prob = np.ones(FLAGS.vocab_size)/FLAGS.vocab_size
-        cumul = np.zeros(FLAGS.vocab_size+1, dtype=np.uint64)
-        cumul[1:] = np.cumsum(prob*10000000 + 1)
+        prob = np.ones(256) / 256  # Angenommener Wert für FLAGS.vocab_size = 256
+        cumul = np.zeros(256 + 1, dtype=np.uint64)
+        cumul[1:] = np.cumsum(prob * 10000000 + 1)
     
         for j in range(len(last_train_data)):
             enc.write(cumul, last_train_data[j])
-        print("Last encode part don't need inference.")
-    
         enc.finish()
         bitout.close()
         f.close()
     
-    # Compute the size of the compressed file
     compressed_size = sum(os.path.getsize(temp_dir + "/" + compressed_file + '.' + str(i)) for i in range(bs))
     if last_train_data is not None:
         compressed_size += os.path.getsize(temp_dir + "/" + compressed_file + '.last')
@@ -278,12 +271,10 @@ def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data
     avg_memory_usage = sum(memory_usages) / len(memory_usages) if memory_usages else 0
     avg_gpu_usage = sum(gpu_usages) / len(gpu_usages) if gpu_usages else 0
 
-    input_file_path = FLAGS.input_dir
-    original_size = os.path.getsize(input_file_path)
-    # Log resource usage
-    log_resource_usage(start_time, "Encode", "analysis.txt", original_size=original_size, compressed_size=compressed_size,cpu_usage=avg_cpu_usage,
-                        memory_usage=avg_memory_usage, gpu_usage=avg_gpu_usage)
+    original_size = os.path.getsize(input_dir)
+    log_resource_usage(start_time, "Encode", "analysis.txt", original_size=original_size, compressed_size=compressed_size, cpu_usage=avg_cpu_usage, memory_usage=avg_memory_usage, gpu_usage=avg_gpu_usage)
     return
+
     
 def var_int_encode(byte_str_len, f):
   while True:
@@ -308,13 +299,9 @@ def var_int_decode(f):
     return byte_str_len
 
 def main():
-
+    global seq_len
     with open("analysis.txt", 'w', encoding='utf-8') as f:
         f.write("Analysis of Compression and Decompression\n")
-
-    os.environ['CUDA_VISIBLE_DEVICES'] = gpu_id
-    np.random.seed(random_seed)
-    torch.manual_seed(random_seed)
 
     temp_dir = "{}_{}_{}_{}_bs{}_{}_seq{}_temp".format(prefix, vocab_dim, hidden_dim, ffn_dim, batch_size, n_layers, seq_len)
     compressed_file = temp_dir.replace("_temp", ".compressed")
@@ -331,40 +318,34 @@ def main():
     print(f"seq_len change from {old_seq_len} to {seq_len} due to vocab_dim = {vocab_dim} and hidden_dim = {hidden_dim}.")
     
     with open(input_dir, 'rb') as fp:
-        series = np.fromstring(fp.read(), dtype=np.uint8)
+        series = np.frombuffer(fp.read(), dtype=np.uint8)
     train_data = strided_app(series, seq_len + 1, 1)
     
     total_length = len(train_data)
     if total_length % batch_size == 0:
-        encode(temp_dir, compressed_file, batch_size, seq_len, hidden_dim, ffn_dim, n_layers, feature_type, compute_type, weight_decay, learning_rate, series, train_data, None)
+        encode(temp_dir, compressed_file, batch_size, seq_len, hidden_dim, ffn_dim, n_layers, feature_type, compute_type, weight_decay, learning_rate, series[:total_length + seq_len], train_data, None)
     else:
         l = total_length // batch_size * batch_size
-        encode(temp_dir, compressed_file, batch_size, seq_len, hidden_dim, ffn_dim, n_layers, feature_type, compute_type, weight_decay, learning_rate, series[:l+seq_len], train_data[:l], series[l:])
-
+        encode(temp_dir, compressed_file, batch_size, seq_len, hidden_dim, ffn_dim, n_layers, feature_type, compute_type, weight_decay, learning_rate, series[:l + seq_len], train_data[:l], series[l:])
+    
     # Combined compressed results
-    f = open(compressed_file+'.combined','wb')
-    for i in range(batch_size):
-        f_in = open(temp_dir+'/'+compressed_file+'.'+str(i),'rb')
-        byte_str = f_in.read()
-        byte_str_len = len(byte_str)
-        var_int_encode(byte_str_len, f)
-        f.write(byte_str)
-        f_in.close()
+    with open(compressed_file+'.combined', 'wb') as f:
+        for i in range(batch_size):
+            with open(f"{temp_dir}/{compressed_file}.{i}", 'rb') as f_in:
+                byte_str = f_in.read()
+                byte_str_len = len(byte_str)
+                var_int_encode(byte_str_len, f)
+                f.write(byte_str)
+        
+        if total_length % batch_size != 0:
+            with open(f"{temp_dir}/{compressed_file}.last", 'rb') as f_in:
+                byte_str = f_in.read()
+                byte_str_len = len(byte_str)
+                var_int_encode(byte_str_len, f)
+                f.write(byte_str)
     
-    if total_length % batch_size != 0:
-        f_in = open(temp_dir+'/'+compressed_file+'.last','rb')
-        byte_str = f_in.read()
-        byte_str_len = len(byte_str)
-        var_int_encode(byte_str_len, f)
-        f.write(byte_str)
-        f_in.close()
-    f.close()
-    
-    total = 0
-    for ff in os.listdir(temp_dir):
-        total += os.path.getsize(temp_dir+'/'+ff)
-    
-    print(total/(1024*1024))
+    total = sum(os.path.getsize(f"{temp_dir}/{ff}") for ff in os.listdir(temp_dir))
+    print(total / (1024 * 1024))
     
     # Remove temp file
     shutil.rmtree(temp_dir)
@@ -373,29 +354,26 @@ def main():
     os.mkdir(temp_dir)
     
     # Split compressed file
-    
-    f = open(compressed_file+'.combined','rb')
-    len_series = len(series) 
-    for i in range(batch_size):
-        f_out = open(temp_dir+'/'+compressed_file+'.'+str(i),'wb')
-        byte_str_len = var_int_decode(f)
-        byte_str = f.read(byte_str_len)
-        f_out.write(byte_str)
-        f_out.close()
-    
-    f_out = open(temp_dir+'/'+compressed_file+'.last','wb')
-    byte_str_len = var_int_decode(f)
-    byte_str = f.read(byte_str_len)
-    f_out.write(byte_str)
-    f_out.close()
-    f.close()
+    with open(compressed_file+'.combined', 'rb') as f:
+        len_series = len(series)
+        for i in range(batch_size):
+            with open(f"{temp_dir}/{compressed_file}.{i}", 'wb') as f_out:
+                byte_str_len = var_int_decode(f)
+                byte_str = f.read(byte_str_len)
+                f_out.write(byte_str)
+        
+        with open(f"{temp_dir}/{compressed_file}.last", 'wb') as f_out:
+            byte_str_len = var_int_decode(f)
+            byte_str = f.read(byte_str_len)
+            f_out.write(byte_str)
     
     len_series = len(series)
-    if (len_series-seq_len) % batch_size == 0:
-        decode(temp_dir, compressed_file, batch_size, seq_len, hidden_dim, ffn_dim, n_layers, feature_type, compute_type, weight_decay, learning_rate, len_series, 0)
+    if (len_series - seq_len) % batch_size == 0:
+        decode(temp_dir, compressed_file, batch_size, seq_len, vocab_size, vocab_dim, hidden_dim, n_layers, ffn_dim, n_heads, feature_type, compute_type, learning_rate, weight_decay, gpu_id, random_seed, len_series, 0, print_step)
     else:
         last_length = (len_series - seq_len) % batch_size + seq_len
-        decode(temp_dir, compressed_file, batch_size, seq_len, hidden_dim, ffn_dim, n_layers, feature_type, compute_type, weight_decay, learning_rate, len_series, last_length)
+        decode(temp_dir, compressed_file, batch_size, seq_len, vocab_size, vocab_dim, hidden_dim, n_layers, ffn_dim, n_heads, feature_type, compute_type, learning_rate, weight_decay, gpu_id, random_seed, len_series, last_length, print_step)
+
 
 if __name__ == '__main__':
     main()
