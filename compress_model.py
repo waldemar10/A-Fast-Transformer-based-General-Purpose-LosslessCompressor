@@ -30,11 +30,11 @@ class SLiMPerformer(torch.nn.Module):
         x = self.input_map(x)
         x = self._concat_pos_embs(x, 0)
         bs, seqlen, vlen = x.shape
-
+        print(f"x.shape before reshape: {x.shape}")
         x = x.reshape(bs, seqlen // self._scale, vlen * self._scale)
         for layer in self.layers:
             x = layer.full_forward(x, layer.attention.sample_rfs(x.device))
-        
+        print(f"x.shape after reshape: {x.shape}")
         x = self.output_logit_map(x)
 
         return x
