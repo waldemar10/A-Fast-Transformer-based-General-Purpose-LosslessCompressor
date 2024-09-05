@@ -246,7 +246,7 @@ def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data
         y = train_batch[:, -1]
         train_batch = torch.from_numpy(train_batch).cuda().long()
         
-        train_loss, logits = model.full_loss(train_batch, with_grad=True)
+        train_loss, logits = model.module.full_loss(train_batch, with_grad=True)
         optimizer.step()
         optimizer.zero_grad(set_to_none=True)
         
