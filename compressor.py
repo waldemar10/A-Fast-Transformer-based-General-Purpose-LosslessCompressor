@@ -46,7 +46,6 @@ flags.DEFINE_enum(
 flags.DEFINE_float('weight_decay', 0.0, 'Weight decay for regularization.')
 
 # Training parameters
-""" flags.DEFINE_string('gpu_id', '0', 'ID of GPU.') """
 flags.DEFINE_integer('random_seed', 0, 'Random seed for both Numpy and Torch.')
 flags.DEFINE_integer('print_step', 1000, 'Interval to print metrics.')
 # Dataset parameters
@@ -127,13 +126,18 @@ def decode(temp_dir, compressed_file, FLAGS, len_series, last):
 
   available_gpus = ','.join([str(i) for i in range(torch.cuda.device_count())])
   os.environ['CUDA_VISIBLE_DEVICES'] = available_gpus
+
   np.random.seed(FLAGS.random_seed)
   torch.manual_seed(FLAGS.random_seed)
 
-  model = compress_model.SLiMPerformer(FLAGS.vocab_size, FLAGS.vocab_dim, FLAGS.hidden_dim,FLAGS.n_layers, FLAGS.ffn_dim,FLAGS.n_heads, FLAGS.feature_type, FLAGS.compute_type).cuda()
-  print("torch.cuda.device_count() "+ str(torch.cuda.device_count()))
-  if torch.cuda.device_count() > 1: 
-      print("Multi-GPU Decode")
+  model = compress_model.SLiMPerformer(
+    FLAGS.vocab_size, FLAGS.vocab_dim, FLAGS.hidden_dim,
+    FLAGS.n_layers, FLAGS.ffn_dim, FLAGS.n_heads,
+    FLAGS.feature_type, FLAGS.compute_type
+  ).cuda()
+
+  if torch.cuda.device_count() > 1:
+      print("Using", torch.cuda.device_count(), "GPUs!")
       model = torch.nn.DataParallel(model)
   print(model)
 
@@ -234,9 +238,9 @@ def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data
                                              FLAGS.n_layers, FLAGS.ffn_dim,
                                              FLAGS.n_heads, FLAGS.feature_type, FLAGS.compute_type).cuda()
     print("torch.cuda.device_count() "+ str(torch.cuda.device_count()))
-    if torch.cuda.device_count() > 1: 
-      print("Multi-GPU")
-      model = torch.nn.DataParallel(model) 
+    if torch.cuda.device_count() > 1:
+      print("Using", torch.cuda.device_count(), "GPUs!")
+      model = torch.nn.DataParallel(model)
     print(model)
     optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate, weight_decay=FLAGS.weight_decay, betas=(.9, .999))
     print(iter_num)
