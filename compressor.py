@@ -233,51 +233,40 @@ def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data
         for j in range(FLAGS.seq_len):
             enc[i].write(cumul, series[ind[i]+j])
     
-    cumul_batch = np.zeros((bs, FLAGS.vocab_size+1), dtype=np.uint64)
+    cumul_batch = np.zeros((bs, FLAGS.vocab_size+1), dtype = np.uint64)
 
-    model = compress_model.SLiMPerformer(
-        FLAGS.vocab_size, FLAGS.vocab_dim, FLAGS.hidden_dim,
-        FLAGS.n_layers, FLAGS.ffn_dim,
-        FLAGS.n_heads, FLAGS.feature_type, FLAGS.compute_type
-    ).cuda()
-
+    model = compress_model.SLiMPerformer(FLAGS.vocab_size, FLAGS.vocab_dim, FLAGS.hidden_dim,
+                                             FLAGS.n_layers, FLAGS.ffn_dim,
+                                             FLAGS.n_heads, FLAGS.feature_type, FLAGS.compute_type).cuda()
+    print("torch.cuda.device_count() "+ str(torch.cuda.device_count()))
     if torch.cuda.device_count() > 1:
         print("Using", torch.cuda.device_count(), "GPUs!")
         model = torch.nn.DataParallel(model)
     print(model)
+    
     optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate, weight_decay=FLAGS.weight_decay, betas=(.9, .999))
     print(iter_num)
     
     for train_index in range(iter_num):
         model.train()
-        
-        # Prepare the batch and move it to GPU
-        train_batch = train_data[ind, :]
+        # Move batch to GPU
+        train_batch = torch.from_numpy(train_data[ind, :]).cuda().long()
         y = train_batch[:, -1]
-        train_batch = torch.from_numpy(train_batch).long().cuda()
-        y = torch.from_numpy(y).long().cuda()
-
         print(f"Data is on GPU: {train_batch.device}")
-
-        # Forward pass and compute loss
-        if torch.cuda.device_count() > 1:
-            logits = model.module.full_loss(train_batch, with_grad=True)
-        else:
-            logits = model.full_loss(train_batch, with_grad=True)
         
-        train_loss = logits[0]
-        logits = logits[1]
-
-        optimizer.step()
-        optimizer.zero_grad(set_to_none=True)
+        # Forward pass and loss calculation
+        train_loss, logits = model(train_batch, with_grad=True)
+        optimizer.zero_grad()  # Zero the gradients
+        train_loss.backward()  # Backpropagation
+        optimizer.step()       # Update parameters
         
         logits = logits.transpose(1, 2)
         prob = logits[:, -1, :]
         prob = F.softmax(prob, dim=1).detach().cpu().numpy()
-        cumul_batch[:, 1:] = np.cumsum(prob*10000000 + 1, axis=1)
+        cumul_batch[:,1:] = np.cumsum(prob*10000000 + 1, axis = 1)
         
         for i in range(bs):
-            enc[i].write(cumul_batch[i, :], y[i].item())
+            enc[i].write(cumul_batch[i,:], y[i])
         
         ind += 1
         if train_index % FLAGS.print_step == 0:
@@ -325,6 +314,7 @@ def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data
     log_resource_usage(start_time, "Encode", "analysis.txt", original_size=original_size, compressed_size=compressed_size, cpu_usage=avg_cpu_usage,
                         memory_usage=avg_memory_usage, gpu_usage=avg_gpu_usage)
     return
+
 
     
 def var_int_encode(byte_str_len, f):
