@@ -46,7 +46,7 @@ flags.DEFINE_enum(
 flags.DEFINE_float('weight_decay', 0.0, 'Weight decay for regularization.')
 
 # Training parameters
-flags.DEFINE_string('gpu_id', '0', 'ID of GPU.')
+""" flags.DEFINE_string('gpu_id', '0', 'ID of GPU.') """
 flags.DEFINE_integer('random_seed', 0, 'Random seed for both Numpy and Torch.')
 flags.DEFINE_integer('print_step', 1000, 'Interval to print metrics.')
 # Dataset parameters
@@ -125,7 +125,8 @@ def decode(temp_dir, compressed_file, FLAGS, len_series, last):
   
   cumul_batch = np.zeros((bs, FLAGS.vocab_size+1), dtype = np.uint64)
 
-  os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu_id
+  available_gpus = ','.join([str(i) for i in range(torch.cuda.device_count())])
+  os.environ['CUDA_VISIBLE_DEVICES'] = available_gpus
   np.random.seed(FLAGS.random_seed)
   torch.manual_seed(FLAGS.random_seed)
 
@@ -332,7 +333,8 @@ def main(_):
   with open("analysis.txt", 'w', encoding='utf-8') as f:
         f.write("Analysis of Compression and Decompression\n")
 
-  os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu_id
+  available_gpus = ','.join([str(i) for i in range(torch.cuda.device_count())])
+  os.environ['CUDA_VISIBLE_DEVICES'] = available_gpus
   np.random.seed(FLAGS.random_seed)
   torch.manual_seed(FLAGS.random_seed)
 
