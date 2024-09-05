@@ -240,25 +240,20 @@ def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data
                                              FLAGS.n_heads, FLAGS.feature_type, FLAGS.compute_type).cuda()
     print("torch.cuda.device_count() "+ str(torch.cuda.device_count()))
     if torch.cuda.device_count() > 1:
-        print("Using", torch.cuda.device_count(), "GPUs!")
-        model = torch.nn.DataParallel(model)
+      print("Using", torch.cuda.device_count(), "GPUs!")
+      model = torch.nn.DataParallel(model)
     print(model)
-    
     optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate, weight_decay=FLAGS.weight_decay, betas=(.9, .999))
     print(iter_num)
-    
     for train_index in range(iter_num):
         model.train()
-        # Move batch to GPU
-        train_batch = torch.from_numpy(train_data[ind, :]).cuda().long()
+        train_batch = train_data[ind, :]
         y = train_batch[:, -1]
+        train_batch = torch.from_numpy(train_batch).cuda().long()
         print(f"Data is on GPU: {train_batch.device}")
-        
-        # Forward pass and loss calculation
-        train_loss, logits = model(train_batch)
-        optimizer.zero_grad()  # Zero the gradients
-        train_loss.backward()  # Backpropagation
-        optimizer.step()       # Update parameters
+        train_loss, logits = model.module.full_loss(train_batch, with_grad=True)
+        optimizer.step()
+        optimizer.zero_grad(set_to_none=True)
         
         logits = logits.transpose(1, 2)
         prob = logits[:, -1, :]
@@ -304,6 +299,7 @@ def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data
     stop_event.set()
     monitor_thread.join()
 
+    
     avg_cpu_usage = sum(cpu_usages) / len(cpu_usages) if cpu_usages else 0
     avg_memory_usage = sum(memory_usages) / len(memory_usages) if memory_usages else 0
     avg_gpu_usage = sum(gpu_usages) / len(gpu_usages) if gpu_usages else 0
@@ -314,8 +310,6 @@ def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data
     log_resource_usage(start_time, "Encode", "analysis.txt", original_size=original_size, compressed_size=compressed_size, cpu_usage=avg_cpu_usage,
                         memory_usage=avg_memory_usage, gpu_usage=avg_gpu_usage)
     return
-
-
     
 def var_int_encode(byte_str_len, f):
   while True:

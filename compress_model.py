@@ -27,30 +27,17 @@ class SLiMPerformer(torch.nn.Module):
         ])
 
     def forward(self, x):
-      x = self.input_map(x)
-      x = self._concat_pos_embs(x, 0)
-      bs, seqlen, vlen = x.shape
-      print(f"x.shape before reshape: {x.shape}")
+        x = self.input_map(x)
+        x = self._concat_pos_embs(x, 0)
+        bs, seqlen, vlen = x.shape
+        print(f"x.shape before reshape: {x.shape}")
+        x = x.reshape(bs, seqlen // self._scale, vlen * self._scale)
+        for layer in self.layers:
+            x = layer.full_forward(x, layer.attention.sample_rfs(x.device))
+        print(f"x.shape after reshape: {x.shape}")
+        x = self.output_logit_map(x)
 
-      # Berechnung und Debugging
-      expected_seqlen = seqlen // self._scale
-      expected_vlen = vlen * self._scale
-      expected_size = bs * expected_seqlen * expected_vlen
-      actual_size = x.numel()
-      print(f"Expected size after reshape: {expected_size}")
-      print(f"Actual size of tensor: {actual_size}")
-
-      if actual_size != expected_size:
-          raise ValueError(f"Size mismatch: expected {expected_size}, but got {actual_size}")
-
-      x = x.reshape(bs, expected_seqlen, expected_vlen)
-      print(f"x.shape after reshape: {x.shape}")
-      
-      for layer in self.layers:
-          x = layer.full_forward(x, layer.attention.sample_rfs(x.device))
-      
-      x = self.output_logit_map(x)
-      return x
+        return x
 
     def full_loss(self, inputs, with_grad=True):
         logits = self.forward(inputs[:, :-1])
