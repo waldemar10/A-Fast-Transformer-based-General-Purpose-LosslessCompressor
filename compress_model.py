@@ -32,12 +32,10 @@ class SLiMPerformer(torch.nn.Module):
       bs, seqlen, vlen = x.shape
       print(f"x.shape before reshape: {x.shape}")
 
-      # Debugging-Ausgabe
-      print(f"Batch size: {bs}, Sequence length: {seqlen}, Vocab length: {vlen}")
-      print(f"Scale: {self._scale}")
-      
-      # Berechne die erwartete Anzahl der Elemente nach dem Reshape
-      expected_size = bs * (seqlen // self._scale) * (vlen * self._scale)
+      # Berechnung und Debugging
+      expected_seqlen = seqlen // self._scale
+      expected_vlen = vlen * self._scale
+      expected_size = bs * expected_seqlen * expected_vlen
       actual_size = x.numel()
       print(f"Expected size after reshape: {expected_size}")
       print(f"Actual size of tensor: {actual_size}")
@@ -45,7 +43,7 @@ class SLiMPerformer(torch.nn.Module):
       if actual_size != expected_size:
           raise ValueError(f"Size mismatch: expected {expected_size}, but got {actual_size}")
 
-      x = x.reshape(bs, seqlen // self._scale, vlen * self._scale)
+      x = x.reshape(bs, expected_seqlen, expected_vlen)
       print(f"x.shape after reshape: {x.shape}")
       
       for layer in self.layers:
