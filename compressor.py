@@ -7,11 +7,7 @@ import struct
 import psutil
 import numpy as np
 import torch
-import torch.distributed as dist
-import torch.nn as nn
-import torch.optim as optim
 import torch.nn.functional as F
-from torch.nn.parallel import DistributedDataParallel as DDP
 import shutil
 import GPUtil
 import threading
@@ -57,14 +53,6 @@ flags.DEFINE_integer('seq_len', 8, 'Maximum sequence length (L).')
 flags.DEFINE_integer('vocab_size', 256, 'Vocabulary size of data.')
 flags.DEFINE_string('input_dir', 'aaa', 'input data dir')
 flags.DEFINE_string('prefix', 'text8', 'output dir')
-
-def setup(rank, world_size):
-    # Initialisiere den Prozess
-    dist.init_process_group("gloo", rank=rank, world_size=world_size)
-    torch.cuda.set_device(rank)
-
-def cleanup():
-    dist.destroy_process_group()
 
 def get_gpu_usage():
     if torch.cuda.is_available():
@@ -136,14 +124,13 @@ def decode(temp_dir, compressed_file, FLAGS, len_series, last):
   
   cumul_batch = np.zeros((bs, FLAGS.vocab_size+1), dtype = np.uint64)
 
-  """ os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu_id """
+  os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu_id
   np.random.seed(FLAGS.random_seed)
   torch.manual_seed(FLAGS.random_seed)
 
   model = compress_model.SLiMPerformer(FLAGS.vocab_size, FLAGS.vocab_dim, FLAGS.hidden_dim,FLAGS.n_layers, FLAGS.ffn_dim,FLAGS.n_heads, FLAGS.feature_type, FLAGS.compute_type).cuda()
   print(model)
-  original_model = model
-  model = DDP(model, device_ids=[0])
+
   optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate, weight_decay=FLAGS.weight_decay, betas=(.9, .999))
 
   training_start = time.time()
@@ -241,8 +228,6 @@ def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data
                                              FLAGS.n_layers, FLAGS.ffn_dim,
                                              FLAGS.n_heads, FLAGS.feature_type, FLAGS.compute_type).cuda()
     print(model)
-    original_model = model
-    model = DDP(model, device_ids=[0])
     optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate, weight_decay=FLAGS.weight_decay, betas=(.9, .999))
     print(iter_num)
     for train_index in range(iter_num):
@@ -251,7 +236,7 @@ def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data
         y = train_batch[:, -1]
         train_batch = torch.from_numpy(train_batch).cuda().long()
         
-        train_loss, logits = original_model.full_loss(train_batch, with_grad=True)
+        train_loss, logits = model.full_loss(train_batch, with_grad=True)
         optimizer.step()
         optimizer.zero_grad(set_to_none=True)
         
@@ -308,7 +293,6 @@ def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data
     # Log resource usage
     log_resource_usage(start_time, "Encode", "analysis.txt", original_size=original_size, compressed_size=compressed_size,cpu_usage=avg_cpu_usage,
                         memory_usage=avg_memory_usage, gpu_usage=avg_gpu_usage)
-    cleanup()
     return
     
 def var_int_encode(byte_str_len, f):
@@ -334,14 +318,11 @@ def var_int_decode(f):
     return byte_str_len
 
 def main(_):
-  rank = 0  
-  world_size = torch.cuda.device_count() 
-  setup(rank, world_size)
 
   with open("analysis.txt", 'w', encoding='utf-8') as f:
         f.write("Analysis of Compression and Decompression\n")
 
-  """ os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu_id """
+  os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu_id
   np.random.seed(FLAGS.random_seed)
   torch.manual_seed(FLAGS.random_seed)
 
