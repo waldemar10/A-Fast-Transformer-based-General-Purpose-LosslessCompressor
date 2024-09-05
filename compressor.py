@@ -8,7 +8,7 @@ import psutil
 import numpy as np
 import torch
 import torch.nn.functional as F
-import torch.nn as nn
+from torch.nn.parallel import DistributedDataParallel as DDP
 import shutil
 import GPUtil
 import threading
@@ -134,7 +134,7 @@ def decode(temp_dir, compressed_file, FLAGS, len_series, last):
   print("torch.cuda.device_count() "+ str(torch.cuda.device_count()))
   if torch.cuda.device_count() > 1: 
       print("Multi-GPU Decode")
-      model = torch.nn.DataParallel(model) 
+      model = DDP(model)
   print(model)
 
   optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate, weight_decay=FLAGS.weight_decay, betas=(.9, .999))
@@ -236,7 +236,7 @@ def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data
     print("torch.cuda.device_count() "+ str(torch.cuda.device_count()))
     if torch.cuda.device_count() > 1: 
       print("Multi-GPU")
-      model = torch.nn.DataParallel(model) 
+      model = DDP(model) 
     print(model)
     optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate, weight_decay=FLAGS.weight_decay, betas=(.9, .999))
     print(iter_num)
@@ -245,7 +245,7 @@ def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data
         train_batch = train_data[ind, :]
         y = train_batch[:, -1]
         train_batch = torch.from_numpy(train_batch).cuda().long()
-        
+        print(f"Data is on GPU: {train_batch.device}")
         train_loss, logits = model.module.full_loss(train_batch, with_grad=True)
         optimizer.step()
         optimizer.zero_grad(set_to_none=True)
