@@ -255,7 +255,7 @@ def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data
         print(f"Data is on GPU: {train_batch.device}")
         
         # Forward pass and loss calculation
-        train_loss, logits = model(train_batch, with_grad=True)
+        train_loss, logits = model(train_batch)
         optimizer.zero_grad()  # Zero the gradients
         train_loss.backward()  # Backpropagation
         optimizer.step()       # Update parameters
