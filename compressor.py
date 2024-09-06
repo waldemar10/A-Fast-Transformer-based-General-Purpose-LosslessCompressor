@@ -217,7 +217,10 @@ def decode(temp_dir, compressed_file, FLAGS, len_series, last):
 def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data):
     
     init_distributed_mode(FLAGS)
-
+    print(f"Number of GPUs available: {torch.cuda.device_count()}")
+    print(f"Current GPU: {torch.cuda.current_device()} - {torch.cuda.get_device_name(torch.cuda.current_device())}")
+    for i in range(torch.cuda.device_count()):
+      print(f"Device {i}: {torch.cuda.get_device_name(i)}")
     cpu_usages, memory_usages, gpu_usages = [], [], []
     stop_event = threading.Event()
     monitor_thread = threading.Thread(target=monitor_resources, args=(cpu_usages, memory_usages, gpu_usages, stop_event))
