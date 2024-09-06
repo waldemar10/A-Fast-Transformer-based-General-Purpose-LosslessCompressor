@@ -62,7 +62,7 @@ os.environ["USE_LIBUV"] = "0"
 def init_distributed_mode(FLAGS):
     print(torch.distributed.is_nccl_available())
     """ dist.TCPStore('localhost', '12355', 1, True, use_libuv=False) """
-    dist.init_process_group(backend="nccl",rank=0,world_size=len(FLAGS.gpu_id.split(','))) 
+    dist.init_process_group(backend="nccl",rank=0,world_size=8) 
     print("Init Process Group")
     torch.cuda.set_device(int(FLAGS.gpu_id.split(',')[0]))
     print("Set Device")
