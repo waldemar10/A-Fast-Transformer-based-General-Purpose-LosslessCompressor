@@ -64,7 +64,9 @@ def init_distributed_mode(FLAGS):
     """ dist.TCPStore('localhost', '12355', 1, True, use_libuv=False) """
     print(f"Number of GPUs available: {torch.cuda.device_count()}")
     print(f"Current GPU: {torch.cuda.current_device()} - {torch.cuda.get_device_name(torch.cuda.current_device())}")
-    dist.init_process_group(backend="nccl",rank=0,world_size=7) 
+    print(torch.cuda.device_count())  # Anzahl der verfügbaren GPUs
+    print(torch.cuda.is_available())
+    dist.init_process_group(backend="nccl",rank=0,world_size=8) 
     print("Init Process Group")
     torch.cuda.set_device(int(FLAGS.gpu_id.split(',')[0]))
     print("Set Device")
