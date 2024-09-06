@@ -59,6 +59,9 @@ flags.DEFINE_string('prefix', 'text8', 'output dir')
 os.environ['MASTER_ADDR'] = 'localhost'
 os.environ['MASTER_PORT'] = '12355'
 os.environ["USE_LIBUV"] = "0"
+
+
+
 def init_distributed_mode(FLAGS):
     print(torch.distributed.is_nccl_available())
     """ dist.TCPStore('localhost', '12355', 1, True, use_libuv=False) """
@@ -66,7 +69,7 @@ def init_distributed_mode(FLAGS):
     print(f"Current GPU: {torch.cuda.current_device()} - {torch.cuda.get_device_name(torch.cuda.current_device())}")
     print(torch.cuda.device_count())  # Anzahl der verfügbaren GPUs
     print(torch.cuda.is_available())
-    dist.init_process_group(backend='nccl', rank=0, world_size=8, init_method='tcp://localhost:12355') 
+    dist.init_process_group(backend='nccl', init_method='env://', rank=0, world_size=8)
     print("Init Process Group")
     torch.cuda.set_device(int(FLAGS.gpu_id.split(',')[0]))
     print("Set Device")
