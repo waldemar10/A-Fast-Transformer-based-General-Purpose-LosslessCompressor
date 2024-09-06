@@ -8,6 +8,8 @@ import psutil
 import numpy as np
 import torch
 import torch.nn.functional as F
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
 import shutil
 import GPUtil
 import threading
@@ -54,6 +56,15 @@ flags.DEFINE_integer('vocab_size', 256, 'Vocabulary size of data.')
 flags.DEFINE_string('input_dir', 'aaa', 'input data dir')
 flags.DEFINE_string('prefix', 'text8', 'output dir')
 
+os.environ['MASTER_ADDR'] = 'localhost'
+os.environ['MASTER_PORT'] = '12355'
+os.environ["USE_LIBUV"] = "0"
+def init_distributed_mode(FLAGS):
+    print(torch.distributed.is_nccl_available())
+    """ dist.TCPStore('localhost', '12355', 1, True, use_libuv=False) """
+    dist.init_process_group(backend="nccl",rank=0,world_size=len(FLAGS.gpu_id.split(',')))
+    torch.cuda.set_device(int(FLAGS.gpu_id.split(',')[0]))
+
 def get_gpu_usage():
     if torch.cuda.is_available():
         return torch.cuda.memory_allocated() / 1024**2, torch.cuda.memory_reserved() / 1024**2
@@ -96,6 +107,9 @@ def log_resource_usage(start_time, phase, file_path, original_size=None, compres
         f.write("\n")
 
 def decode(temp_dir, compressed_file, FLAGS, len_series, last):
+
+  init_distributed_mode(FLAGS)
+
   cpu_usages, memory_usages, gpu_usages = [], [], []
   stop_event = threading.Event()
   monitor_thread = threading.Thread(target=monitor_resources, args=(cpu_usages, memory_usages, gpu_usages, stop_event))
@@ -130,6 +144,8 @@ def decode(temp_dir, compressed_file, FLAGS, len_series, last):
 
   model = compress_model.SLiMPerformer(FLAGS.vocab_size, FLAGS.vocab_dim, FLAGS.hidden_dim,FLAGS.n_layers, FLAGS.ffn_dim,FLAGS.n_heads, FLAGS.feature_type, FLAGS.compute_type).cuda()
   print(model)
+
+  model = DDP(model, device_ids=[torch.cuda.current_device()])
 
   optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate, weight_decay=FLAGS.weight_decay, betas=(.9, .999))
 
@@ -199,6 +215,9 @@ def decode(temp_dir, compressed_file, FLAGS, len_series, last):
  
 
 def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data):
+    
+    init_distributed_mode(FLAGS)
+
     cpu_usages, memory_usages, gpu_usages = [], [], []
     stop_event = threading.Event()
     monitor_thread = threading.Thread(target=monitor_resources, args=(cpu_usages, memory_usages, gpu_usages, stop_event))
@@ -228,6 +247,9 @@ def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data
                                              FLAGS.n_layers, FLAGS.ffn_dim,
                                              FLAGS.n_heads, FLAGS.feature_type, FLAGS.compute_type).cuda()
     print(model)
+
+    model = DDP(model, device_ids=[torch.cuda.current_device()])
+
     optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate, weight_decay=FLAGS.weight_decay, betas=(.9, .999))
     print(iter_num)
     for train_index in range(iter_num):
@@ -406,6 +428,8 @@ def main(_):
   else:
     last_length = (len_series - FLAGS.seq_len) % FLAGS.batch_size + FLAGS.seq_len
     decode(temp_dir, compressed_file, FLAGS, len_series, last_length)
+
+  dist.destroy_process_group()
   
 
 if __name__ == '__main__':
