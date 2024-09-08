@@ -8,6 +8,7 @@ import psutil
 import numpy as np
 import torch
 import torch.nn.functional as F
+import torch.multiprocessing as mp
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 import shutil
@@ -62,16 +63,22 @@ os.environ["USE_LIBUV"] = "0"
 
 
 
-def init_distributed_mode(FLAGS):
+def init_distributed_mode(rank,world_size):
     print(torch.distributed.is_nccl_available())
     """ dist.TCPStore('localhost', '12355', 1, True, use_libuv=False) """
     print(f"Number of GPUs available: {torch.cuda.device_count()}")
     print(f"Current GPU: {torch.cuda.current_device()} - {torch.cuda.get_device_name(torch.cuda.current_device())}")
     print(torch.cuda.device_count())  # Anzahl der verfügbaren GPUs
     print(torch.cuda.is_available())
-    dist.init_process_group(backend='nccl',rank=0, world_size=8)
+
+    os.environ["MASTER_ADDR"] = "localhost"
+    os.environ["MASTER_PORT"] = "12355"
+    dist.init_process_group(backend='nccl',rank=rank, world_size=world_size)
+
     print("Init Process Group")
-    torch.cuda.set_device(int(FLAGS.gpu_id.split(',')[0]))
+
+    """ torch.cuda.set_device(int(FLAGS.gpu_id.split(',')[0])) """
+
     print("Set Device")
 
 def get_gpu_usage():
@@ -117,8 +124,6 @@ def log_resource_usage(start_time, phase, file_path, original_size=None, compres
 
 def decode(temp_dir, compressed_file, FLAGS, len_series, last):
 
-  init_distributed_mode(FLAGS)
-
   cpu_usages, memory_usages, gpu_usages = [], [], []
   stop_event = threading.Event()
   monitor_thread = threading.Thread(target=monitor_resources, args=(cpu_usages, memory_usages, gpu_usages, stop_event))
@@ -154,9 +159,10 @@ def decode(temp_dir, compressed_file, FLAGS, len_series, last):
   model = compress_model.SLiMPerformer(FLAGS.vocab_size, FLAGS.vocab_dim, FLAGS.hidden_dim,FLAGS.n_layers, FLAGS.ffn_dim,FLAGS.n_heads, FLAGS.feature_type, FLAGS.compute_type).cuda()
   print(model)
 
-  model = DDP(model, device_ids=[torch.cuda.current_device()])
-
+  
   optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate, weight_decay=FLAGS.weight_decay, betas=(.9, .999))
+  
+  model = DDP(model, device_ids=[torch.cuda.current_device()])
 
   training_start = time.time()
   for train_index in range(iter_num-FLAGS.seq_len):
@@ -225,7 +231,7 @@ def decode(temp_dir, compressed_file, FLAGS, len_series, last):
 
 def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data):
     
-    init_distributed_mode(FLAGS)
+    
     print(f"Number of GPUs available: {torch.cuda.device_count()}")
     print(f"Current GPU: {torch.cuda.current_device()} - {torch.cuda.get_device_name(torch.cuda.current_device())}")
     for i in range(torch.cuda.device_count()):
@@ -260,9 +266,10 @@ def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data
                                              FLAGS.n_heads, FLAGS.feature_type, FLAGS.compute_type).cuda()
     print(model)
 
-    model = DDP(model, device_ids=[torch.cuda.current_device()])
+    
 
     optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate, weight_decay=FLAGS.weight_decay, betas=(.9, .999))
+    model = DDP(model, device_ids=[torch.cuda.current_device()])
     print(iter_num)
     for train_index in range(iter_num):
         model.train()
@@ -351,8 +358,10 @@ def var_int_decode(f):
         byte_str_len += shift
     return byte_str_len
 
-def main(_):
+def main(rank, world_size):
 
+  init_distributed_mode(rank, world_size)
+  print(f"Prozess {rank} verwendet GPU {torch.cuda.current_device()}")
   with open("analysis.txt", 'w', encoding='utf-8') as f:
         f.write("Analysis of Compression and Decompression\n")
 
@@ -445,4 +454,6 @@ def main(_):
   
 
 if __name__ == '__main__':
-  app.run(main)
+  world_size = torch.cuda.device_count() 
+  mp.spawn(main, args=(world_size,), nprocs=world_size, join=True)
+  """ app.run(main) """
