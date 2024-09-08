@@ -370,11 +370,22 @@ def main(rank, world_size):
   np.random.seed(FLAGS.random_seed)
   torch.manual_seed(FLAGS.random_seed)
 
-  temp_dir = "{}_{}_{}_{}_bs{}_{}_seq{}_temp".format(FLAGS.prefix, FLAGS.vocab_dim, FLAGS.hidden_dim, FLAGS.ffn_dim, FLAGS.batch_size, FLAGS.n_layers, FLAGS.seq_len)
+  """ temp_dir = "{}_{}_{}_{}_bs{}_{}_seq{}_temp".format(FLAGS.prefix, FLAGS.vocab_dim, FLAGS.hidden_dim, FLAGS.ffn_dim, FLAGS.batch_size, FLAGS.n_layers, FLAGS.seq_len)
   compressed_file = temp_dir.replace("_temp", ".compressed")
   os.mkdir(temp_dir)
-  print(compressed_file)
-  
+  print(compressed_file) """
+
+  if rank == 0:
+        temp_dir = "{}_{}_{}_{}_bs{}_{}_seq{}_temp".format(
+            FLAGS.prefix, FLAGS.vocab_dim, FLAGS.hidden_dim, FLAGS.ffn_dim,
+            FLAGS.batch_size, FLAGS.n_layers, FLAGS.seq_len)
+        compressed_file = temp_dir.replace("_temp", ".compressed")
+        if not os.path.exists(temp_dir):
+            os.mkdir(temp_dir)
+        print(f"Ordner {temp_dir} erstellt.")
+        
+  dist.barrier()
+
   def strided_app(a, L, S):  # Window len = L, Stride len/stepsize = S
     nrows = ((a.size - L) // S) + 1
     n = a.strides[0]
