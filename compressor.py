@@ -60,7 +60,7 @@ flags.DEFINE_string('prefix', 'text8', 'output dir')
 """ os.environ['MASTER_ADDR'] = 'localhost'
 os.environ['MASTER_PORT'] = '12355' """
 os.environ["USE_LIBUV"] = "0"
-
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,4,5,6,7"
 
 
 def init_distributed_mode(rank,world_size):
@@ -365,7 +365,7 @@ def main(rank, world_size):
   with open("analysis.txt", 'w', encoding='utf-8') as f:
         f.write("Analysis of Compression and Decompression\n")
 
-  os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu_id
+  """ os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu_id """
   np.random.seed(FLAGS.random_seed)
   torch.manual_seed(FLAGS.random_seed)
 
