@@ -401,12 +401,25 @@ def main(rank, world_size):
     series = np.fromstring(fp.read(), dtype=np.uint8)
   train_data = strided_app(series, FLAGS.seq_len+1, 1)
   
+
   total_length = len(train_data)
+  print("Total length: ", total_length)
+  l = total_length // FLAGS.batch_size * FLAGS.batch_size
+  print("l: ", l)
+  num_batches_per_gpu = l // world_size
+  print("num_batches_per_gpu: ", num_batches_per_gpu)
+  start_idx = rank * num_batches_per_gpu
+  print("start_idx: ", start_idx)
+  end_idx = start_idx + num_batches_per_gpu
+  print("end_idx: ", end_idx)
+  
   if total_length % FLAGS.batch_size == 0:
-    encode(temp_dir, compressed_file, FLAGS, series, train_data, None)
+    """ encode(temp_dir, compressed_file, FLAGS, series, train_data, None) """
+    encode(temp_dir, compressed_file, FLAGS, series[start_idx:end_idx+FLAGS.seq_len], train_data[start_idx:end_idx], series[end_idx:])
   else:
     l = total_length // FLAGS.batch_size * FLAGS.batch_size
-    encode(temp_dir, compressed_file, FLAGS, series[:l+FLAGS.seq_len], train_data[:l], series[l:])
+    """ encode(temp_dir, compressed_file, FLAGS, series[:l+FLAGS.seq_len], train_data[:l], series[l:]) """
+    encode(temp_dir, compressed_file, FLAGS, series[start_idx:end_idx+FLAGS.seq_len], train_data[start_idx:end_idx], series[end_idx:])
 
   #Combined compressed results
   f = open(compressed_file+'.combined','wb')
