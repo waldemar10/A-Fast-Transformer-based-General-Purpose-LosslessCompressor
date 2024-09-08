@@ -14,6 +14,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import shutil
 import GPUtil
 import threading
+import sys
 
 import compress_model
 import arithmeticcoding_fast
@@ -74,7 +75,7 @@ def init_distributed_mode(rank,world_size):
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = "12355"
     dist.init_process_group(backend='nccl',rank=rank, world_size=world_size)
-
+    torch.cuda.set_device(rank)
     print("Init Process Group")
 
     """ torch.cuda.set_device(int(FLAGS.gpu_id.split(',')[0])) """
@@ -359,7 +360,7 @@ def var_int_decode(f):
     return byte_str_len
 
 def main(rank, world_size):
-
+  FLAGS(sys.argv)
   init_distributed_mode(rank, world_size)
   print(f"Prozess {rank} verwendet GPU {torch.cuda.current_device()}")
   with open("analysis.txt", 'w', encoding='utf-8') as f:
