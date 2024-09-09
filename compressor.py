@@ -248,7 +248,7 @@ def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train
     print("Before file")
     print(temp_dir+"/"+compressed_file+'.'+str(i))
     torch.distributed.barrier()
-    f = [open(temp_dir+"/"+compressed_file+'.'+str(i),'wb') for i in range(bs)]
+    f = [open(os.path.join(temp_dir, compressed_file + '.' + str(i)), 'wb') for i in range(bs)]
     bitout = [arithmeticcoding_fast.BitOutputStream(f[i]) for i in range(bs)]
     enc = [arithmeticcoding_fast.ArithmeticEncoder(32, bitout[i]) for i in range(bs)]
     print("Encoder initialized")
@@ -415,7 +415,7 @@ def main(rank, world_size):
         os.mkdir(temp_dir)
   print(f"Rank {rank} erstellt Unterordner {temp_dir}")
 
-  compressed_file = temp_dir.replace("_temp", ".compressed")
+  compressed_file = main_temp_dir.replace("_temp", ".compressed")
 
   def strided_app(a, L, S):  # Window len = L, Stride len/stepsize = S
     nrows = ((a.size - L) // S) + 1
