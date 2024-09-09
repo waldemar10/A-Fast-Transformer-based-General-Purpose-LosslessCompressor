@@ -230,7 +230,7 @@ def decode(temp_dir, compressed_file, FLAGS, len_series, last):
     return
  
 
-def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data):
+def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train_data):
     
     
     print(f"Number of GPUs available: {torch.cuda.device_count()}")
@@ -262,8 +262,8 @@ def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data
     
     cumul_batch = np.zeros((bs, FLAGS.vocab_size+1), dtype = np.uint64)
 
-    local_rank = int(os.environ["LOCAL_RANK"])
-    torch.cuda.set_device(local_rank)
+    """ local_rank = int(os.environ["LOCAL_RANK"])
+    torch.cuda.set_device(local_rank) """
 
     model = compress_model.SLiMPerformer(FLAGS.vocab_size, FLAGS.vocab_dim, FLAGS.hidden_dim,
                                              FLAGS.n_layers, FLAGS.ffn_dim,
@@ -276,7 +276,7 @@ def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data
     
     
     
-    model = DDP(model, device_ids=[local_rank])
+    model = DDP(model, device_ids=[rank])
     print("Model wrapped in DDP")
     torch.distributed.barrier()
 
@@ -424,11 +424,11 @@ def main(rank, world_size):
   
   if total_length % FLAGS.batch_size == 0:
     """ encode(temp_dir, compressed_file, FLAGS, series, train_data, None) """
-    encode(temp_dir, compressed_file, FLAGS, series[start_idx:end_idx+FLAGS.seq_len], train_data[start_idx:end_idx], series[end_idx:])
+    encode(rank,temp_dir, compressed_file, FLAGS, series[start_idx:end_idx+FLAGS.seq_len], train_data[start_idx:end_idx], series[end_idx:])
   else:
     l = total_length // FLAGS.batch_size * FLAGS.batch_size
     """ encode(temp_dir, compressed_file, FLAGS, series[:l+FLAGS.seq_len], train_data[:l], series[l:]) """
-    encode(temp_dir, compressed_file, FLAGS, series[start_idx:end_idx+FLAGS.seq_len], train_data[start_idx:end_idx], series[end_idx:])
+    encode(rank,temp_dir, compressed_file, FLAGS, series[start_idx:end_idx+FLAGS.seq_len], train_data[start_idx:end_idx], series[end_idx:])
 
   #Combined compressed results
   f = open(compressed_file+'.combined','wb')
