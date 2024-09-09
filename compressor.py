@@ -281,7 +281,7 @@ def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train
     except Exception as e:
       print(f"DDP Initialization Error on rank {rank}: {e}") """
     print("Model wrapped in DDP")
-    torch.distributed.barrier()
+    """ torch.distributed.barrier() """
 
     print(iter_num)
     for train_index in range(iter_num):
