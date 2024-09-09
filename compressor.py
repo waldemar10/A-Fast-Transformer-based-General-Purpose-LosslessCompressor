@@ -238,9 +238,10 @@ def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train
     print(f"Number of GPUs available: {torch.cuda.device_count()}")
     print(f"Current GPU: {torch.cuda.current_device()} - {torch.cuda.get_device_name(torch.cuda.current_device())}")
     bs = FLAGS.batch_size // torch.distributed.get_world_size()
+
     # Initialize file handles and encoders for the current GPU's portion of the batch
     start_index = rank * (FLAGS.batch_size // torch.distributed.get_world_size())
-    end_index = (rank + 1) * (FLAGS.batch_size // torch.distributed.get_world_size())
+    end_index = ((rank + 1) * (FLAGS.batch_size // torch.distributed.get_world_size()))-1
 
     cpu_usages, memory_usages, gpu_usages = [], [], []
     stop_event = threading.Event()
