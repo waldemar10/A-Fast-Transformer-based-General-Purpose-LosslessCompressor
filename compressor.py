@@ -65,17 +65,19 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,4,5,6,7"
 
 
 def init_distributed_mode(rank,world_size):
-    print(torch.distributed.is_nccl_available())
+    """ print(torch.distributed.is_nccl_available()) """
     """ dist.TCPStore('localhost', '12355', 1, True, use_libuv=False) """
-    print(f"Number of GPUs available: {torch.cuda.device_count()}")
+    """ print(f"Number of GPUs available: {torch.cuda.device_count()}") """
     print(f"Current GPU: {torch.cuda.current_device()} - {torch.cuda.get_device_name(torch.cuda.current_device())}")
-    print(torch.cuda.device_count())  # Anzahl der verfügbaren GPUs
-    print(torch.cuda.is_available())
+    """ print(torch.cuda.device_count()) 
+    print(torch.cuda.is_available()) """
 
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = "12355"
     dist.init_process_group(backend='nccl',rank=rank, world_size=world_size)
+    print(f"Rank: {rank}")
     torch.cuda.set_device(rank)
+    print(f"Current GPU: {torch.cuda.current_device()} - {torch.cuda.get_device_name(torch.cuda.current_device())}")
     print("Init Process Group")
 
     """ torch.cuda.set_device(int(FLAGS.gpu_id.split(',')[0])) """
