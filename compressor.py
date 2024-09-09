@@ -249,7 +249,7 @@ def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train
     start_time = time.time()
     """ bs = FLAGS.batch_size """
 
-    
+    print(start_index,end_index)
     f = [open(os.path.join(temp_dir, compressed_file + '.' + str(i)), 'wb') for i in range(start_index, end_index)]
     bitout = [arithmeticcoding_fast.BitOutputStream(f[i - start_index]) for i in range(start_index, end_index)]
     enc = [arithmeticcoding_fast.ArithmeticEncoder(32, bitout[i - start_index]) for i in range(start_index, end_index)]
@@ -292,6 +292,7 @@ def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train
     """ torch.distributed.barrier() """
 
     print(iter_num)
+    torch.distributed.barrier()
     for train_index in range(iter_num):
         model.train()
         train_batch = train_data[ind[start_index] : ind[end_index]]
