@@ -263,6 +263,9 @@ def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train
     
     iter_num = len(train_data) // FLAGS.batch_size
     ind = np.array(range(start_index, end_index)) * iter_num
+    print(ind)
+    print(ind[0])
+    print(ind.size)
     iter_num -= FLAGS.seq_len
 
     for i in range(start_index, end_index):
