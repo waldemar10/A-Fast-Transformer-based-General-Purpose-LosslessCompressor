@@ -294,24 +294,34 @@ def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train
     print(iter_num)
     torch.distributed.barrier()
     for train_index in range(iter_num):
+        print("Start training")
         model.train()
+        print("Train batch ")
         train_batch = train_data[ind[start_index] : ind[end_index]]
+        print("Train batch done")
         y = train_batch[:, -1]
+        print("Before model forward")
         train_batch = torch.from_numpy(train_batch).cuda().long()
-
+        print("After model forward")
         train_loss, logits = model.full_loss(train_batch, with_grad=True)
+        print("After model full loss")
         optimizer.step()
+        print("After optimizer step")
         optimizer.zero_grad(set_to_none=True)
-
+        print("After optimizer zero grad")
         logits = logits.transpose(1, 2)
+        print("After logits transpose")
         prob = logits[:, -1, :]
+        print("After prob")
         prob = F.softmax(prob, dim=1).detach().cpu().numpy()
+        print("After softmax")
         cumul_batch[:, 1:] = np.cumsum(prob * 10000000 + 1, axis=1)
-
+        print("After cumsum")
         for i in range(start_index, end_index):
             enc[i - start_index].write(cumul_batch[i - start_index, :], y[i - start_index])
 
         ind += 1
+        print("Before print step")
         if train_index % FLAGS.print_step == 0:
             size = 0
             for cf in os.listdir(temp_dir):
