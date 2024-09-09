@@ -250,7 +250,7 @@ def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train
     f = [open(temp_dir+"/"+compressed_file+'.'+str(i),'wb') for i in range(bs)]
     bitout = [arithmeticcoding_fast.BitOutputStream(f[i]) for i in range(bs)]
     enc = [arithmeticcoding_fast.ArithmeticEncoder(32, bitout[i]) for i in range(bs)]
-    
+
     torch.distributed.barrier()
     
     prob = np.ones(FLAGS.vocab_size)/FLAGS.vocab_size
@@ -394,18 +394,27 @@ def main(rank, world_size):
   os.mkdir(temp_dir)
   print(compressed_file) """
 
-  temp_dir = "{}_{}_{}_{}_bs{}_{}_seq{}_temp".format(
+  """ temp_dir = "{}_{}_{}_{}_bs{}_{}_seq{}_temp".format(
         FLAGS.prefix, FLAGS.vocab_dim, FLAGS.hidden_dim, FLAGS.ffn_dim,
         FLAGS.batch_size, FLAGS.n_layers, FLAGS.seq_len)
-  compressed_file = temp_dir.replace("_temp", ".compressed")
+  compressed_file = temp_dir.replace("_temp", ".compressed") """
+  main_temp_dir = "{}_{}_{}_{}_bs{}_{}_seq{}_temp".format(
+        FLAGS.prefix, FLAGS.vocab_dim, FLAGS.hidden_dim, FLAGS.ffn_dim,
+        FLAGS.batch_size, FLAGS.n_layers, FLAGS.seq_len)
 
-  
   if rank == 0:
-        if not os.path.exists(temp_dir):
-            os.mkdir(temp_dir)
-        print(f"Ordner {temp_dir} erstellt.")
+        if not os.path.exists(main_temp_dir):
+            os.mkdir(main_temp_dir)
+        print(f"Hauptordner {main_temp_dir} erstellt.")
 
   dist.barrier()
+
+  temp_dir = os.path.join(main_temp_dir, f"rank_{rank}_temp")
+  if not os.path.exists(temp_dir):
+        os.mkdir(temp_dir)
+  print(f"Rank {rank} erstellt Unterordner {temp_dir}")
+
+  compressed_file = temp_dir.replace("_temp", ".compressed")
 
   def strided_app(a, L, S):  # Window len = L, Stride len/stepsize = S
     nrows = ((a.size - L) // S) + 1
