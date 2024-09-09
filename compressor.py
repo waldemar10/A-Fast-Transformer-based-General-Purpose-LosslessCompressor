@@ -296,39 +296,52 @@ def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train
     print(iter_num)
     torch.distributed.barrier()
     for train_index in range(iter_num):
-        print("Start training")
+        print(f"[DEBUG] Training iteration {train_index} on rank {rank}")
+        
         model.train()
-        print("Train batch ")
-        train_batch = train_data[ind[start_index] : ind[end_index]]
-        print("Train batch done")
-        y = train_batch[:, -1]
-        print("Before model forward")
-        train_batch = torch.from_numpy(train_batch).cuda().long()
-        print("After model forward")
-        train_loss, logits = model.full_loss(train_batch, with_grad=True)
-        print("After model full loss")
-        optimizer.step()
-        print("After optimizer step")
-        optimizer.zero_grad(set_to_none=True)
-        print("After optimizer zero grad")
-        logits = logits.transpose(1, 2)
-        print("After logits transpose")
-        prob = logits[:, -1, :]
-        print("After prob")
-        prob = F.softmax(prob, dim=1).detach().cpu().numpy()
-        print("After softmax")
-        cumul_batch[:, 1:] = np.cumsum(prob * 10000000 + 1, axis=1)
-        print("After cumsum")
-        for i in range(start_index, end_index):
-            enc[i - start_index].write(cumul_batch[i - start_index, :], y[i - start_index])
+        try:
+            train_batch = train_data[ind[start_index] : ind[end_index]]
+            y = train_batch[:, -1]
+            print(f"[DEBUG] Retrieved train batch of shape {train_batch.shape}")
+        except Exception as e:
+            print(f"[ERROR] Failed to retrieve train batch at iteration {train_index}: {e}")
+        
+        try:
+            train_batch = torch.from_numpy(train_batch).cuda().long()
+            train_loss, logits = model.full_loss(train_batch, with_grad=True)
+            print(f"[DEBUG] Model forward pass completed at iteration {train_index}")
+        except Exception as e:
+            print(f"[ERROR] Model forward pass failed at iteration {train_index}: {e}")
+        
+        try:
+            optimizer.step()
+            optimizer.zero_grad(set_to_none=True)
+            print(f"[DEBUG] Optimizer step and gradient zeroing completed at iteration {train_index}")
+        except Exception as e:
+            print(f"[ERROR] Optimizer step failed at iteration {train_index}: {e}")
 
+        logits = logits.transpose(1, 2)
+        prob = F.softmax(logits[:, -1, :], dim=1).detach().cpu().numpy()
+        cumul_batch[:, 1:] = np.cumsum(prob * 10000000 + 1, axis=1)
+
+        # Update encoder
+        for i in range(start_index, end_index):
+            try:
+                enc[i - start_index].write(cumul_batch[i - start_index, :], y[i - start_index])
+                print(f"[DEBUG] Encoder write successful for index {i}")
+            except Exception as e:
+                print(f"[ERROR] Encoder write failed for index {i}: {e}")
+        
         ind += 1
-        print("Before print step")
+        
+        # Periodic output
         if train_index % FLAGS.print_step == 0:
             size = 0
             for cf in os.listdir(temp_dir):
                 size += os.path.getsize(os.path.join(temp_dir, cf))
-            print(train_index, ":", train_loss.item() / np.log(2), "size:", size / (1024 * 1024))
+            print(f"[DEBUG] Iteration {train_index}: Train loss {train_loss.item() / np.log(2)}, size: {size / (1024 * 1024)} MB")
+    
+    print(f"[DEBUG] Training completed on rank {rank}")
 
     for i in range(start_index, end_index):
         enc[i - start_index].finish()
