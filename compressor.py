@@ -285,6 +285,8 @@ def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train
 
     print(iter_num)
     for train_index in range(iter_num):
+        print(train_index)
+        print(f"Current GPU: {torch.cuda.current_device()} - {torch.cuda.get_device_name(torch.cuda.current_device())}")
         model.train()
         train_batch = train_data[ind, :]
         y = train_batch[:, -1]
