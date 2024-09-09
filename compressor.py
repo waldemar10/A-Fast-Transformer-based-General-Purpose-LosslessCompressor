@@ -268,9 +268,9 @@ def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data
     print(model)
 
     
-
-    optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate, weight_decay=FLAGS.weight_decay, betas=(.9, .999))
     model = DDP(model, device_ids=[torch.cuda.current_device()])
+    optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate, weight_decay=FLAGS.weight_decay, betas=(.9, .999))
+    
     print(iter_num)
     for train_index in range(iter_num):
         model.train()
