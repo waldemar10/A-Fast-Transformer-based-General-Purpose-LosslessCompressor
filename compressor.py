@@ -287,8 +287,8 @@ def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train
 
     print(iter_num)
     for train_index in range(iter_num):
-        print(train_index)
-        print(f"Current GPU: {torch.cuda.current_device()} - {torch.cuda.get_device_name(torch.cuda.current_device())}")
+        """ print(train_index)
+        print(f"Current GPU: {torch.cuda.current_device()} - {torch.cuda.get_device_name(torch.cuda.current_device())}") """
         model.train()
         train_batch = train_data[ind, :]
         y = train_batch[:, -1]
@@ -428,7 +428,7 @@ def main(rank, world_size):
   print("start_idx: ", start_idx)
   end_idx = start_idx + num_batches_per_gpu
   print("end_idx: ", end_idx)
-  
+  dist.barrier()
   if total_length % FLAGS.batch_size == 0:
     """ encode(temp_dir, compressed_file, FLAGS, series, train_data, None) """
     encode(rank,temp_dir, compressed_file, FLAGS, series[start_idx:end_idx+FLAGS.seq_len], train_data[start_idx:end_idx], series[end_idx:])
