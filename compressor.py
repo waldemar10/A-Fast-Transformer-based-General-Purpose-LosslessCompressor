@@ -271,11 +271,13 @@ def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data
     
     optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate, weight_decay=FLAGS.weight_decay, betas=(.9, .999))
     
-    torch.distributed.barrier()
-    model = DDP(model, device_ids=[torch.cuda.current_device()])
+    
+    local_rank = int(os.environ["LOCAL_RANK"])
+    torch.cuda.set_device(local_rank)
+    model = DDP(model, device_ids=[local_rank])
     print("Model wrapped in DDP")
     torch.distributed.barrier()
-    
+
     print(iter_num)
     for train_index in range(iter_num):
         model.train()
