@@ -251,7 +251,7 @@ def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train
     bitout = [arithmeticcoding_fast.BitOutputStream(f[i]) for i in range(bs)]
     enc = [arithmeticcoding_fast.ArithmeticEncoder(32, bitout[i]) for i in range(bs)]
 
-    torch.distributed.barrier()
+    """ torch.distributed.barrier() """
     
     prob = np.ones(FLAGS.vocab_size)/FLAGS.vocab_size
     cumul = np.zeros(FLAGS.vocab_size+1, dtype=np.uint64)
