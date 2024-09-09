@@ -304,7 +304,7 @@ def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train
         
         model.train()
         try:
-            train_batch = train_data[ind[0] : ind[126]]
+            train_batch = train_data[ind[0] : ind[bs // torch.distributed.get_world_size()]]
             y = train_batch[:, -1]
             print(f"[DEBUG] Retrieved train batch of shape {train_batch.shape}")
         except Exception as e:
