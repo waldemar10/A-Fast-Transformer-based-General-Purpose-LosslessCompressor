@@ -276,10 +276,10 @@ def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train
     
     print(rank)
     print(f"Current GPU: {torch.cuda.current_device()} - {torch.cuda.get_device_name(torch.cuda.current_device())}")
-    try:
+    """ try:
       model = DDP(model, device_ids=[rank])
     except Exception as e:
-      print(f"DDP Initialization Error on rank {rank}: {e}")
+      print(f"DDP Initialization Error on rank {rank}: {e}") """
     print("Model wrapped in DDP")
     torch.distributed.barrier()
 
