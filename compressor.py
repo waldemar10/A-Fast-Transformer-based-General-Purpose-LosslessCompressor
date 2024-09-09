@@ -262,6 +262,9 @@ def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data
     
     cumul_batch = np.zeros((bs, FLAGS.vocab_size+1), dtype = np.uint64)
 
+    local_rank = int(os.environ["LOCAL_RANK"])
+    torch.cuda.set_device(local_rank)
+
     model = compress_model.SLiMPerformer(FLAGS.vocab_size, FLAGS.vocab_dim, FLAGS.hidden_dim,
                                              FLAGS.n_layers, FLAGS.ffn_dim,
                                              FLAGS.n_heads, FLAGS.feature_type, FLAGS.compute_type).cuda()
@@ -272,8 +275,7 @@ def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data
     optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate, weight_decay=FLAGS.weight_decay, betas=(.9, .999))
     
     
-    local_rank = int(os.environ["LOCAL_RANK"])
-    torch.cuda.set_device(local_rank)
+    
     model = DDP(model, device_ids=[local_rank])
     print("Model wrapped in DDP")
     torch.distributed.barrier()
