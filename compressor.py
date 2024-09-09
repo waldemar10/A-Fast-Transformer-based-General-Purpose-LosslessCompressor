@@ -246,7 +246,7 @@ def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train
     start_time = time.time()
     bs = FLAGS.batch_size
     print("Before file")
-    print(temp_dir+"/"+compressed_file+'.'+str(i))
+    """ print(temp_dir+"/"+compressed_file+'.'+str(i)) """
     torch.distributed.barrier()
     f = [open(os.path.join(temp_dir, compressed_file + '.' + str(i)), 'wb') for i in range(bs)]
     bitout = [arithmeticcoding_fast.BitOutputStream(f[i]) for i in range(bs)]
