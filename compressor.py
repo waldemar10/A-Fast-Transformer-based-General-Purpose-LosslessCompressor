@@ -263,9 +263,9 @@ def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train
     
     iter_num = len(train_data) // FLAGS.batch_size
     ind = np.array(range(start_index, end_index)) * iter_num
-    print(ind)
+    """ print(ind)
     print(ind[0])
-    print(ind.size)
+    print(ind.size) """
     iter_num -= FLAGS.seq_len
 
     for i in range(start_index, end_index):
@@ -304,7 +304,7 @@ def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train
         
         model.train()
         try:
-            train_batch = train_data[ind[start_index] : ind[end_index]]
+            train_batch = train_data[ind[0] : ind[126]]
             y = train_batch[:, -1]
             print(f"[DEBUG] Retrieved train batch of shape {train_batch.shape}")
         except Exception as e:
