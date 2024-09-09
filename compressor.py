@@ -312,7 +312,7 @@ def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train
         
         try:
             train_batch = torch.from_numpy(train_batch).cuda().long()
-            train_loss, logits = model.full_loss(train_batch, with_grad=True)
+            train_loss, logits = model.module.full_loss(train_batch, with_grad=True)
             print(f"[DEBUG] Model forward pass completed at iteration {train_index}")
         except Exception as e:
             print(f"[ERROR] Model forward pass failed at iteration {train_index}: {e}")
