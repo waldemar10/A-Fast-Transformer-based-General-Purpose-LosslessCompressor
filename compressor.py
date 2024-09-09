@@ -237,18 +237,22 @@ def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train
     
     print(f"Number of GPUs available: {torch.cuda.device_count()}")
     print(f"Current GPU: {torch.cuda.current_device()} - {torch.cuda.get_device_name(torch.cuda.current_device())}")
-   
+    bs = FLAGS.batch_size // torch.distributed.get_world_size()
+    # Initialize file handles and encoders for the current GPU's portion of the batch
+    start_index = rank * (FLAGS.batch_size // torch.distributed.get_world_size())
+    end_index = (rank + 1) * (FLAGS.batch_size // torch.distributed.get_world_size())
+
     cpu_usages, memory_usages, gpu_usages = [], [], []
     stop_event = threading.Event()
     monitor_thread = threading.Thread(target=monitor_resources, args=(cpu_usages, memory_usages, gpu_usages, stop_event))
     monitor_thread.start()
     start_time = time.time()
-    bs = FLAGS.batch_size
+    """ bs = FLAGS.batch_size """
 
-    torch.distributed.barrier()
-    f = [open(os.path.join(temp_dir, compressed_file + '.' + str(i)), 'wb') for i in range(bs)]
-    bitout = [arithmeticcoding_fast.BitOutputStream(f[i]) for i in range(bs)]
-    enc = [arithmeticcoding_fast.ArithmeticEncoder(32, bitout[i]) for i in range(bs)]
+    
+    f = [open(os.path.join(temp_dir, compressed_file + '.' + str(i)), 'wb') for i in range(start_index, end_index)]
+    bitout = [arithmeticcoding_fast.BitOutputStream(f[i - start_index]) for i in range(start_index, end_index)]
+    enc = [arithmeticcoding_fast.ArithmeticEncoder(32, bitout[i - start_index]) for i in range(start_index, end_index)]
     print("Encoder initialized")
     torch.distributed.barrier()
     
@@ -257,14 +261,15 @@ def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train
     cumul[1:] = np.cumsum(prob*10000000 + 1)
     
     iter_num = len(train_data) // FLAGS.batch_size
-    ind = np.array(range(bs))*iter_num
+    ind = np.array(range(start_index, end_index)) * iter_num
     iter_num -= FLAGS.seq_len
 
-    for i in range(bs):
+    for i in range(start_index, end_index):
         for j in range(FLAGS.seq_len):
-            enc[i].write(cumul, series[ind[i]+j])
+            enc[i - start_index].write(cumul, series[ind[i - start_index] + j])
+
     
-    cumul_batch = np.zeros((bs, FLAGS.vocab_size+1), dtype = np.uint64)
+    cumul_batch = np.zeros((end_index - start_index, FLAGS.vocab_size + 1), dtype=np.uint64)
 
     """ local_rank = int(os.environ["LOCAL_RANK"]) """
     torch.cuda.set_device(rank)
@@ -288,58 +293,54 @@ def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train
 
     print(iter_num)
     for train_index in range(iter_num):
-        """ print(train_index)
-        print(f"Current GPU: {torch.cuda.current_device()} - {torch.cuda.get_device_name(torch.cuda.current_device())}") """
         model.train()
-        train_batch = train_data[ind, :]
+        train_batch = train_data[ind[start_index] : ind[end_index]]
         y = train_batch[:, -1]
         train_batch = torch.from_numpy(train_batch).cuda().long()
-        
+
         train_loss, logits = model.full_loss(train_batch, with_grad=True)
         optimizer.step()
         optimizer.zero_grad(set_to_none=True)
-        
+
         logits = logits.transpose(1, 2)
         prob = logits[:, -1, :]
         prob = F.softmax(prob, dim=1).detach().cpu().numpy()
-        cumul_batch[:,1:] = np.cumsum(prob*10000000 + 1, axis = 1)
-        
-        for i in range(bs):
-            enc[i].write(cumul_batch[i,:], y[i])
-        
+        cumul_batch[:, 1:] = np.cumsum(prob * 10000000 + 1, axis=1)
+
+        for i in range(start_index, end_index):
+            enc[i - start_index].write(cumul_batch[i - start_index, :], y[i - start_index])
+
         ind += 1
         if train_index % FLAGS.print_step == 0:
             size = 0
             for cf in os.listdir(temp_dir):
-                size += os.path.getsize(temp_dir+"/"+cf)
-            print(train_index, ":", train_loss.item()/np.log(2), "size:", size/(1024*1024))
-    
-    for i in range(bs):
-        enc[i].finish()
-        bitout[i].close()
-        f[i].close()
+                size += os.path.getsize(os.path.join(temp_dir, cf))
+            print(train_index, ":", train_loss.item() / np.log(2), "size:", size / (1024 * 1024))
+
+    for i in range(start_index, end_index):
+        enc[i - start_index].finish()
+        bitout[i - start_index].close()
+        f[i - start_index].close()
 
     if last_train_data is not None:
-        print("last series")
-        f = open(temp_dir+"/"+compressed_file+'.last','wb')
-        bitout = arithmeticcoding_fast.BitOutputStream(f)
-        enc = arithmeticcoding_fast.ArithmeticEncoder(32, bitout)
-        prob = np.ones(FLAGS.vocab_size)/FLAGS.vocab_size
-        cumul = np.zeros(FLAGS.vocab_size+1, dtype=np.uint64)
-        cumul[1:] = np.cumsum(prob*10000000 + 1)
-    
-        for j in range(len(last_train_data)):
-            enc.write(cumul, last_train_data[j])
-        print("Last encode part don't need inference.")
-    
-        enc.finish()
-        bitout.close()
-        f.close()
+        print("Last series")
+        with open(os.path.join(temp_dir, compressed_file + '.last'), 'wb') as f:
+            bitout = arithmeticcoding_fast.BitOutputStream(f)
+            enc = arithmeticcoding_fast.ArithmeticEncoder(32, bitout)
+            prob = np.ones(FLAGS.vocab_size) / FLAGS.vocab_size
+            cumul = np.zeros(FLAGS.vocab_size + 1, dtype=np.uint64)
+            cumul[1:] = np.cumsum(prob * 10000000 + 1)
+
+            for j in range(len(last_train_data)):
+                enc.write(cumul, last_train_data[j])
+            print("Last encode part don't need inference.")
+            enc.finish()
+            bitout.close()
     
     # Compute the size of the compressed file
-    compressed_size = sum(os.path.getsize(temp_dir + "/" + compressed_file + '.' + str(i)) for i in range(bs))
+    compressed_size = sum(os.path.getsize(os.path.join(temp_dir, compressed_file + '.' + str(i))) for i in range(start_index, end_index))
     if last_train_data is not None:
-        compressed_size += os.path.getsize(temp_dir + "/" + compressed_file + '.last')
+        compressed_size += os.path.getsize(os.path.join(temp_dir, compressed_file + '.last'))
     stop_event.set()
     monitor_thread.join()
 
