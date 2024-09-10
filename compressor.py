@@ -338,7 +338,7 @@ def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train
     """ torch.distributed.barrier() """
 
     print(iter_num)
-    torch.distributed.barrier()
+    dist.barrier()
     for train_index in range(iter_num):
         """ print(f"[DEBUG] Training iteration {train_index} on rank {rank}") """
         
@@ -393,26 +393,34 @@ def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train
         bitout[i - start_index].close()
         f[i - start_index].close()
 
-    if last_train_data is not None:
-        print("Last series")
-        with open(os.path.join(temp_dir, compressed_file + '.last'), 'wb') as f:
-            bitout = arithmeticcoding_fast.BitOutputStream(f)
-            enc = arithmeticcoding_fast.ArithmeticEncoder(32, bitout)
-            prob = np.ones(FLAGS.vocab_size) / FLAGS.vocab_size
-            cumul = np.zeros(FLAGS.vocab_size + 1, dtype=np.uint64)
-            cumul[1:] = np.cumsum(prob * 10000000 + 1)
+    # Encode the last part of the series
+    if rank == 0:
+      if last_train_data is not None:
+          print("Last series")
+          with open(os.path.join(temp_dir, compressed_file + '.last'), 'wb') as f:
+              bitout = arithmeticcoding_fast.BitOutputStream(f)
+              enc = arithmeticcoding_fast.ArithmeticEncoder(32, bitout)
+              prob = np.ones(FLAGS.vocab_size) / FLAGS.vocab_size
+              cumul = np.zeros(FLAGS.vocab_size + 1, dtype=np.uint64)
+              cumul[1:] = np.cumsum(prob * 10000000 + 1)
 
-            for j in range(len(last_train_data)):
-                enc.write(cumul, last_train_data[j])
-            print("Last encode part don't need inference.")
-            enc.finish()
-            bitout.close()
-    
+              for j in range(len(last_train_data)):
+                  enc.write(cumul, last_train_data[j])
+              print("Last encode part don't need inference.")
+              enc.finish()
+              bitout.close()
+    dist.barrier()
+    print("Encode finished")
+
     # Compute the size of the compressed file
-    compressed_size = sum(os.path.getsize(os.path.join(temp_dir, compressed_file + '.' + str(i))) for i in range(start_index, end_index))
+    """ compressed_size = sum(os.path.getsize(os.path.join(temp_dir, compressed_file + '.' + str(i))) for i in range(start_index, end_index))
     if last_train_data is not None:
         compressed_size += os.path.getsize(os.path.join(temp_dir, compressed_file + '.last'))
-    stop_event.set()
+    if rank == 0:
+      print(f"Total compressed file size: {compressed_size / (1024 * 1024)} MB") """
+
+    # Log resource usage
+    """  stop_event.set()
     monitor_thread.join()
 
     avg_cpu_usage = sum(cpu_usages) / len(cpu_usages) if cpu_usages else 0
@@ -423,7 +431,7 @@ def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train
     original_size = os.path.getsize(input_file_path)
     # Log resource usage
     log_resource_usage(start_time, "Encode", "analysis.txt", original_size=original_size, compressed_size=compressed_size,cpu_usage=avg_cpu_usage,
-                        memory_usage=avg_memory_usage, gpu_usage=avg_gpu_usage)
+                        memory_usage=avg_memory_usage, gpu_usage=avg_gpu_usage) """
     return
     
 def var_int_encode(byte_str_len, f):
@@ -516,10 +524,12 @@ def main(rank, world_size):
     encode(rank,temp_dir, compressed_file, FLAGS, series[start_idx:end_idx+FLAGS.seq_len], train_data[start_idx:end_idx], series[end_idx:])
   
   dist.barrier()
+  print("Start decoding")
   iterr = (FLAGS.batch_size // world_size)-1
   rank_counter = 0
   if rank == 0:
   #Combined compressed results
+    print("Start combining")
     f = open(compressed_file+'.combined','wb')
     for i in range(FLAGS.batch_size):
       
