@@ -513,9 +513,10 @@ def main(rank, world_size):
   num_batches_per_gpu = l // world_size
   start_idx = rank * num_batches_per_gpu
   end_idx = start_idx + num_batches_per_gpu
-  
-  print(f"Rank {rank} processing data from index {start_idx} to {end_idx}")
 
+  print(f"Rank {rank} processing data from index {start_idx} to {end_idx}")
+  print(series)
+  print(f"Series End: {series[end_idx:]}")
   dist.barrier()
   if total_length % FLAGS.batch_size == 0:
     """ encode(temp_dir, compressed_file, FLAGS, series, train_data, None) """
