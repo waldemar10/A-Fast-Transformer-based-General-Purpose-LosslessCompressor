@@ -128,7 +128,7 @@ def log_resource_usage(start_time, phase, file_path, original_size=None, compres
 def decode(rank,temp_dir, compressed_file, FLAGS, len_series, last):
 
   start_index = rank * (FLAGS.batch_size // torch.distributed.get_world_size())
-  end_index = ((rank + 1) * (FLAGS.batch_size // torch.distributed.get_world_size()))-1
+  end_index = ((rank + 1) * (FLAGS.batch_size // torch.distributed.get_world_size()))
 
   cpu_usages, memory_usages, gpu_usages = [], [], []
   stop_event = threading.Event()
@@ -294,7 +294,7 @@ def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train
     bitout = [arithmeticcoding_fast.BitOutputStream(f[i - start_index]) for i in range(start_index, end_index)]
     enc = [arithmeticcoding_fast.ArithmeticEncoder(32, bitout[i - start_index]) for i in range(start_index, end_index)]
     print("Encoder initialized")
-    torch.distributed.barrier()
+    """ torch.distributed.barrier() """
     
     prob = np.ones(FLAGS.vocab_size)/FLAGS.vocab_size
     cumul = np.zeros(FLAGS.vocab_size+1, dtype=np.uint64)
