@@ -394,7 +394,7 @@ def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train
         f[i - start_index].close()
 
     # Encode the last part of the series
-    if rank == 0:
+    if rank == world_size - 1:
       if last_train_data is not None:
           print("Last series")
           with open(os.path.join(temp_dir, compressed_file + '.last'), 'wb') as f:
@@ -405,7 +405,9 @@ def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train
               cumul[1:] = np.cumsum(prob * 10000000 + 1)
 
               for j in range(len(last_train_data)):
+                  
                   enc.write(cumul, last_train_data[j])
+                  print(len(last_train_data))
               print("Last encode part don't need inference.")
               enc.finish()
               bitout.close()
@@ -522,11 +524,14 @@ def main(rank, world_size):
   print(f"Series End: {series_partition[-FLAGS.seq_len:]}")
 
   dist.barrier()
-
-  if total_length % FLAGS.batch_size == 0:
-      encode(rank, temp_dir, compressed_file, FLAGS, series_partition, None)
+  if rank == world_size - 1:
+      if total_length % FLAGS.batch_size == 0:
+        encode(rank, temp_dir, compressed_file, FLAGS, series_partition, None)
+      else:
+        encode(rank, temp_dir, compressed_file, FLAGS, series_partition, train_data[start_idx:end_idx], series[end_idx:])
   else:
-      encode(rank, temp_dir, compressed_file, FLAGS, series_partition, train_data[start_idx:end_idx], series[end_idx:])
+      encode(rank, temp_dir, compressed_file, FLAGS, series_partition, None)
+ 
   
   dist.barrier()
   print("Start decoding")
