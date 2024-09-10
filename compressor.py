@@ -526,11 +526,11 @@ def main(rank, world_size):
   dist.barrier()
   if rank == world_size - 1:
       if total_length % FLAGS.batch_size == 0:
-        encode(rank, temp_dir, compressed_file, FLAGS, series_partition, None)
+        encode(rank, temp_dir, compressed_file, FLAGS, series_partition, train_data[start_idx:end_idx], None)
       else:
         encode(rank, temp_dir, compressed_file, FLAGS, series_partition, train_data[start_idx:end_idx], series[end_idx:])
   else:
-      encode(rank, temp_dir, compressed_file, FLAGS, series_partition, None)
+      encode(rank, temp_dir, compressed_file, FLAGS, series_partition, train_data[start_idx:end_idx], None)
  
   
   dist.barrier()
