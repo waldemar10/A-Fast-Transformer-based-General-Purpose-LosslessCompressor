@@ -145,6 +145,7 @@ def decode(rank,temp_dir, compressed_file, FLAGS, len_series, last):
   ind = np.array(range(start_index, end_index)) * iter_num
 
   series_2d = np.zeros((bs,iter_num), dtype = np.uint8).astype('int')
+  print(series_2d)
   """ temp_dir_rank = temp_dir + f"/rank_{rank}_temp" """
   f = [open(temp_dir + "/" + compressed_file + '.' + str(i), 'rb') for i in range(start_index,end_index)]
   bitin = [arithmeticcoding_fast.BitInputStream(f[i-start_index]) for i in range(start_index,end_index)]
@@ -466,19 +467,9 @@ def main(rank, world_size):
   with open("analysis.txt", 'w', encoding='utf-8') as f:
         f.write("Analysis of Compression and Decompression\n")
 
-  """ os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu_id """
   np.random.seed(FLAGS.random_seed)
   torch.manual_seed(FLAGS.random_seed)
 
-  """ temp_dir = "{}_{}_{}_{}_bs{}_{}_seq{}_temp".format(FLAGS.prefix, FLAGS.vocab_dim, FLAGS.hidden_dim, FLAGS.ffn_dim, FLAGS.batch_size, FLAGS.n_layers, FLAGS.seq_len)
-  compressed_file = temp_dir.replace("_temp", ".compressed")
-  os.mkdir(temp_dir)
-  print(compressed_file) """
-
-  """ temp_dir = "{}_{}_{}_{}_bs{}_{}_seq{}_temp".format(
-        FLAGS.prefix, FLAGS.vocab_dim, FLAGS.hidden_dim, FLAGS.ffn_dim,
-        FLAGS.batch_size, FLAGS.n_layers, FLAGS.seq_len)
-  compressed_file = temp_dir.replace("_temp", ".compressed") """
   main_temp_dir = "{}_{}_{}_{}_bs{}_{}_seq{}_temp".format(
         FLAGS.prefix, FLAGS.vocab_dim, FLAGS.hidden_dim, FLAGS.ffn_dim,
         FLAGS.batch_size, FLAGS.n_layers, FLAGS.seq_len)
@@ -512,10 +503,14 @@ def main(rank, world_size):
   
 
   total_length = len(train_data)
+  print(f"Total length: {total_length}")
   l = total_length // FLAGS.batch_size * FLAGS.batch_size
+  print(f"Total length L: {l}")
   num_batches_per_gpu = l // world_size
+  print(f"Number of batches per GPU: {num_batches_per_gpu}")
   extra_batches = total_length % world_size
-
+  print(f"Extra batches: {extra_batches}")
+  
   start_idx = rank * num_batches_per_gpu + min(rank, extra_batches)
   end_idx = start_idx + num_batches_per_gpu + (1 if rank < extra_batches else 0)
 
@@ -535,7 +530,7 @@ def main(rank, world_size):
  
   
   dist.barrier()
-  print("Start decoding")
+  
   iterr = (FLAGS.batch_size // world_size)-1
   rank_counter = 0
   if rank == 0:
@@ -578,9 +573,11 @@ def main(rank, world_size):
 
   dist.barrier()
   #Remove temp file
-  """ shutil.rmtree(temp_dir)   """         
+  print("Start decoding")
+  """ shutil.rmtree(temp_dir)   """ 
+          
   #Remove all temp files
-  shutil.rmtree(main_temp_dir)
+  """ shutil.rmtree(main_temp_dir)
 
   #Now need to create the same dir again
   #Decode
@@ -589,13 +586,14 @@ def main(rank, world_size):
             os.mkdir(main_temp_dir)
         print(f"Hauptordner {main_temp_dir} erstellt.")
 
-  """ os.mkdir(temp_dir) """
+ 
   temp_dir = os.path.join(main_temp_dir, f"rank_{rank}_temp")   
 
   if not os.path.exists(temp_dir):
         os.mkdir(temp_dir)
         print(f"Decompression: Rank {rank} erstellt Unterordner {temp_dir}")
 
+  dist.barrier()
   #Split compressed file
   
   f = open(compressed_file+'.combined','rb')
@@ -624,7 +622,7 @@ def main(rank, world_size):
     decode(rank,temp_dir, compressed_file, FLAGS, len_series, last_length)
   dist.barrier()
   if rank == 0:
-    combine_decompressed_files(main_temp_dir, world_size, FLAGS.prefix + '.out')
+    combine_decompressed_files(main_temp_dir, world_size, FLAGS.prefix + '.out') """
 
   dist.destroy_process_group()
   
