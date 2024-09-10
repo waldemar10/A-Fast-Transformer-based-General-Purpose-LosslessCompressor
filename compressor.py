@@ -387,7 +387,7 @@ def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train
             print(f" Iteration on Rank: {rank} : {train_index}: Train loss {train_loss.item() / np.log(2)}, size: {size / (1024 * 1024)} MB")
     
     print(f"[DEBUG] Training completed on rank {rank}")
-
+    dist.barrier()
     for i in range(start_index, end_index):
         enc[i - start_index].finish()
         bitout[i - start_index].close()
