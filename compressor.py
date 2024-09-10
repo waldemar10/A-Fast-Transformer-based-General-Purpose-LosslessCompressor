@@ -138,7 +138,7 @@ def decode(rank,temp_dir, compressed_file, FLAGS, len_series, last):
   bs = FLAGS.batch_size // torch.distributed.get_world_size()
 
   iter_num = (len_series - FLAGS.seq_len) // FLAGS.batch_size
-  iter_num = iter_num // world_size
+  """ iter_num = iter_num // world_size """
   print(f"Iterationszahl pro Batch: {iter_num - FLAGS.seq_len}")
 
   """ ind = np.array(range(bs))*iter_num """
@@ -294,14 +294,14 @@ def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train
     bitout = [arithmeticcoding_fast.BitOutputStream(f[i - start_index]) for i in range(start_index, end_index)]
     enc = [arithmeticcoding_fast.ArithmeticEncoder(32, bitout[i - start_index]) for i in range(start_index, end_index)]
     print("Encoder initialized")
-    """ torch.distributed.barrier() """
+    torch.distributed.barrier()
     
     prob = np.ones(FLAGS.vocab_size)/FLAGS.vocab_size
     cumul = np.zeros(FLAGS.vocab_size+1, dtype=np.uint64)
     cumul[1:] = np.cumsum(prob*10000000 + 1)
     
     iter_num = len(train_data) // FLAGS.batch_size
-    iter_num = iter_num // world_size
+    """ iter_num = iter_num // world_size """
     ind = np.array(range(start_index, end_index)) * iter_num
     """ print(ind)
     print(ind[0])
