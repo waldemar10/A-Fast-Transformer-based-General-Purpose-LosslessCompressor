@@ -302,11 +302,12 @@ def encode(rank,world_size,temp_dir, compressed_file, FLAGS, series, train_data,
     cumul[1:] = np.cumsum(prob*10000000 + 1)
     
     iter_num = len(train_data) // FLAGS.batch_size
-    """ iter_num = iter_num // world_size """
+    iter_num_pro_gpu = iter_num // world_size
+    iter_num_pro_gpu -= FLAGS.seq_len
     ind = np.array(range(start_index, end_index)) * iter_num
-    """ print(ind)
-    print(ind[0])
-    print(ind.size) """
+    print(f"ind {ind}")
+    print(f"ind[0] {ind[0]}")
+    print(f"ind.size {ind.size}")
     iter_num -= FLAGS.seq_len
 
     for i in range(start_index, end_index):
@@ -327,9 +328,10 @@ def encode(rank,world_size,temp_dir, compressed_file, FLAGS, series, train_data,
     
     try:
       model = DDP(model, device_ids=[rank])
+      print("Model wrapped in DDP")
     except Exception as e:
       print(f"DDP Initialization Error on rank {rank}: {e}")
-    print("Model wrapped in DDP")
+    
 
     optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate, weight_decay=FLAGS.weight_decay, betas=(.9, .999))
     
@@ -338,9 +340,9 @@ def encode(rank,world_size,temp_dir, compressed_file, FLAGS, series, train_data,
     
     """ torch.distributed.barrier() """
 
-    print(iter_num)
+    print(iter_num_pro_gpu)
     dist.barrier()
-    for train_index in range(iter_num):
+    for train_index in range(iter_num_pro_gpu):
         """ print(f"[DEBUG] Training iteration {train_index} on rank {rank}") """
         
         model.train()
@@ -389,12 +391,14 @@ def encode(rank,world_size,temp_dir, compressed_file, FLAGS, series, train_data,
     
     print(f"[DEBUG] Training completed on rank {rank}")
     dist.barrier()
+    # Close encoders and file handles
     for i in range(start_index, end_index):
         enc[i - start_index].finish()
         bitout[i - start_index].close()
         f[i - start_index].close()
     print(f"[DEBUG] Encoders closed on rank {rank}")
     print(f"world_size: {world_size}")
+    dist.barrier()
     # Encode the last part of the series
     if rank == world_size - 1:
       if last_train_data is not None:
@@ -409,7 +413,7 @@ def encode(rank,world_size,temp_dir, compressed_file, FLAGS, series, train_data,
               for j in range(len(last_train_data)):
                   
                   enc.write(cumul, last_train_data[j])
-                  print(len(last_train_data))
+                  
               print("Last encode part don't need inference.")
               enc.finish()
               bitout.close()
