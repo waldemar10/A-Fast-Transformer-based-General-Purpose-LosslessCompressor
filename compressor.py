@@ -280,7 +280,7 @@ def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train
 
     # Initialize file handles and encoders for the current GPU's portion of the batch
     start_index = rank * (FLAGS.batch_size // torch.distributed.get_world_size())
-    end_index = ((rank + 1) * (FLAGS.batch_size // torch.distributed.get_world_size()))-1
+    end_index = ((rank + 1) * (FLAGS.batch_size // torch.distributed.get_world_size()))
 
     cpu_usages, memory_usages, gpu_usages = [], [], []
     stop_event = threading.Event()
@@ -604,7 +604,7 @@ def main(rank, world_size):
   dist.barrier()
   if rank == 0:
     combine_decompressed_files(main_temp_dir, world_size, FLAGS.prefix + '.out')
-    
+
   dist.destroy_process_group()
   
 def combine_decompressed_files(main_temp_dir, num_gpus, output_file):
