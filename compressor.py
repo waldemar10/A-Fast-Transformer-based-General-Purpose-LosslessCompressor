@@ -271,7 +271,7 @@ def decode(rank,temp_dir, compressed_file, FLAGS, len_series, last):
   return
  
 
-def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train_data):
+def encode(rank,world_size,temp_dir, compressed_file, FLAGS, series, train_data, last_train_data):
     
     
     print(f"Number of GPUs available: {torch.cuda.device_count()}")
@@ -527,11 +527,11 @@ def main(rank, world_size):
   dist.barrier()
   if rank == world_size - 1:
       if total_length % FLAGS.batch_size == 0:
-        encode(rank, temp_dir, compressed_file, FLAGS, series_partition, train_data[start_idx:end_idx], None)
+        encode(rank,world_size, temp_dir, compressed_file, FLAGS, series_partition, train_data[start_idx:end_idx], None)
       else:
-        encode(rank, temp_dir, compressed_file, FLAGS, series_partition, train_data[start_idx:end_idx], series[end_idx:])
+        encode(rank,world_size, temp_dir, compressed_file, FLAGS, series_partition, train_data[start_idx:end_idx], series[end_idx:])
   else:
-      encode(rank, temp_dir, compressed_file, FLAGS, series_partition, train_data[start_idx:end_idx], None)
+      encode(rank,world_size, temp_dir, compressed_file, FLAGS, series_partition, train_data[start_idx:end_idx], None)
  
   
   dist.barrier()
