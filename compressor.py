@@ -392,7 +392,8 @@ def encode(rank,temp_dir, compressed_file, FLAGS, series, train_data, last_train
         enc[i - start_index].finish()
         bitout[i - start_index].close()
         f[i - start_index].close()
-
+    print(f"[DEBUG] Encoders closed on rank {rank}")
+    print(f"world_size: {world_size}")
     # Encode the last part of the series
     if rank == world_size - 1:
       if last_train_data is not None:
