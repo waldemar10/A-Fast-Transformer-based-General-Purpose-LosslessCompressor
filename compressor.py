@@ -511,20 +511,22 @@ def main(rank, world_size):
   total_length = len(train_data)
   l = total_length // FLAGS.batch_size * FLAGS.batch_size
   num_batches_per_gpu = l // world_size
-  start_idx = rank * num_batches_per_gpu
-  end_idx = start_idx + num_batches_per_gpu
+  extra_batches = total_length % world_size
+
+  start_idx = rank * num_batches_per_gpu + min(rank, extra_batches)
+  end_idx = start_idx + num_batches_per_gpu + (1 if rank < extra_batches else 0)
 
   print(f"Rank {rank} processing data from index {start_idx} to {end_idx}")
-  print(series)
-  print(f"Series End: {series[end_idx:]}")
+
+  series_partition = series[start_idx:end_idx + FLAGS.seq_len]
+  print(f"Series End: {series_partition[-FLAGS.seq_len:]}")
+
   dist.barrier()
+
   if total_length % FLAGS.batch_size == 0:
-    """ encode(temp_dir, compressed_file, FLAGS, series, train_data, None) """
-    encode(rank,temp_dir, compressed_file, FLAGS, series[start_idx:end_idx+FLAGS.seq_len], None)
+      encode(rank, temp_dir, compressed_file, FLAGS, series_partition, None)
   else:
-    l = total_length // FLAGS.batch_size * FLAGS.batch_size
-    """ encode(temp_dir, compressed_file, FLAGS, series[:l+FLAGS.seq_len], train_data[:l], series[l:]) """
-    encode(rank,temp_dir, compressed_file, FLAGS, series[start_idx:end_idx+FLAGS.seq_len], train_data[start_idx:end_idx], series[end_idx:])
+      encode(rank, temp_dir, compressed_file, FLAGS, series_partition, train_data[start_idx:end_idx], series[end_idx:])
   
   dist.barrier()
   print("Start decoding")
