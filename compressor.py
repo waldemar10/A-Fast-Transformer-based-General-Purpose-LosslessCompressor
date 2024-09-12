@@ -306,9 +306,9 @@ def encode(rank,world_size,temp_dir, compressed_file, FLAGS, series, train_data,
     iter_num_for_gpu = len(train_data) // (FLAGS.batch_size // world_size)
     iter_num_for_gpu -= FLAGS.seq_len
     ind = np.array(range(start_index, end_index)) * iter_num
-    print(f"ind {ind}")
+    """ print(f"ind {ind}")
     print(f"ind[0] {ind[0]}")
-    print(f"ind.size {ind.size}")
+    print(f"ind.size {ind.size}") """
     iter_num -= FLAGS.seq_len
 
     for i in range(start_index, end_index):
@@ -508,21 +508,47 @@ def main(rank, world_size):
   
 
   total_length = len(train_data)
+  # total_length = 10.000.000.000
   """ print(f"Total length: {total_length}") """
   l = total_length // FLAGS.batch_size * FLAGS.batch_size
+  # l = 9536.74316406
   """ print(f"Total length L: {l}") """
   num_batches_per_gpu = l // world_size
+  # num_batches_per_gpu = 1192.092
   """ print(f"Number of batches per GPU: {num_batches_per_gpu}") """
   extra_batches = total_length % world_size
   """ print(f"Extra batches: {extra_batches}") """
   
-  start_idx = rank * num_batches_per_gpu + min(rank, extra_batches)
-  end_idx = start_idx + num_batches_per_gpu + (1 if rank < extra_batches else 0)
+  """ start_idx = rank * num_batches_per_gpu + min(rank, extra_batches)
+  end_idx = start_idx + num_batches_per_gpu + (1 if rank < extra_batches else 0) """
+  start_idx = rank * num_batches_per_gpu
+  end_idx = start_idx + num_batches_per_gpu 
 
   """ print(f"Rank {rank} processing data from index {start_idx} to {end_idx}") """
 
   series_partition = series[start_idx:end_idx + FLAGS.seq_len]
   """ print(f"Series End: {series_partition[-FLAGS.seq_len:]}") """
+  if rank == 0:
+    print("RANK 0")
+    print(f"Total length: {total_length}")
+    print(f"Number of batches per GPU: {num_batches_per_gpu}")
+    print(f"Extra batches: {extra_batches}")
+    print(f"Start Index: {start_idx}")
+    print(f"End Index: {end_idx}")
+    print(f"Series Partition: {series_partition}")
+    print(f"Series Partition Length: {len(series_partition)}")
+    print(f"Series Partition End: {series_partition[-FLAGS.seq_len:]}")
+
+  if rank == 1:
+    print("RANK 1")
+    print(f"Total length: {total_length}")
+    print(f"Number of batches per GPU: {num_batches_per_gpu}")
+    print(f"Extra batches: {extra_batches}")
+    print(f"Start Index: {start_idx}")
+    print(f"End Index: {end_idx}")
+    print(f"Series Partition: {series_partition}")
+    print(f"Series Partition Length: {len(series_partition)}")
+    print(f"Series Partition End: {series_partition[-FLAGS.seq_len:]}")
 
   dist.barrier()
   if rank == world_size - 1:
