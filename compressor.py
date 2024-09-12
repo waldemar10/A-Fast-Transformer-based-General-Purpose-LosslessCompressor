@@ -304,7 +304,7 @@ def encode(rank,world_size,temp_dir, compressed_file, FLAGS, series, train_data,
     # New iteration depending on the number of GPUs
     iter_num = len(train_data) // FLAGS.batch_size
     iter_num_for_gpu = len(train_data) // (FLAGS.batch_size // world_size)
-    iter_num_for_gpu -= FLAGS.seq_len
+    
     ind = np.array(range(start_index, end_index)) * iter_num
     if rank == world_size - 1:
       print(f"RANK 7 ind {ind}")
@@ -312,6 +312,8 @@ def encode(rank,world_size,temp_dir, compressed_file, FLAGS, series, train_data,
       print(f"RANK 7 ind.size {ind.size}")
       print(f"RANK 7 startindex {start_index}")
       print(f"RANK 7 Endindex {end_index}")
+      iter_num_for_gpu -= FLAGS.seq_len
+      iter_num -= FLAGS.seq_len
     
     if rank == world_size - 2:
       print(f"RANK 6 ind {ind}")
@@ -319,7 +321,7 @@ def encode(rank,world_size,temp_dir, compressed_file, FLAGS, series, train_data,
       print(f"RANK 6 ind.size {ind.size}")
       print(f"RANK 6 startindex {start_index}")
       print(f"RANK 6 Endindex {end_index}")
-    iter_num -= FLAGS.seq_len
+    
 
     for i in range(start_index, end_index):
         for j in range(FLAGS.seq_len):
