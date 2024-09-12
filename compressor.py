@@ -307,11 +307,18 @@ def encode(rank,world_size,temp_dir, compressed_file, FLAGS, series, train_data,
     iter_num_for_gpu -= FLAGS.seq_len
     ind = np.array(range(start_index, end_index)) * iter_num
     if rank == world_size - 1:
-      print(f"ind {ind}")
-      print(f"ind[0] {ind[0]}")
-      print(f"ind.size {ind.size}")
-      print(f"Endindex {end_index}")
-      print(f"ind[end_index] {len(ind)}")
+      print(f"RANK 7 ind {ind}")
+      print(f"RANK 7 ind[0] {ind[0]}")
+      print(f"RANK 7 ind.size {ind.size}")
+      print(f"RANK 7 startindex {start_index}")
+      print(f"RANK 7 Endindex {end_index}")
+    
+    if rank == world_size - 2:
+      print(f"RANK 6 ind {ind}")
+      print(f"RANK 6 ind[0] {ind[0]}")
+      print(f"RANK 6 ind.size {ind.size}")
+      print(f"RANK 6 startindex {start_index}")
+      print(f"RANK 6 Endindex {end_index}")
     iter_num -= FLAGS.seq_len
 
     for i in range(start_index, end_index):
