@@ -302,8 +302,9 @@ def encode(rank,world_size,temp_dir, compressed_file, FLAGS, series, train_data,
     cumul[1:] = np.cumsum(prob*10000000 + 1)
     
     # New iteration depending on the number of GPUs
-    iter_num = len(train_data) // (FLAGS.batch_size // world_size)
-
+    iter_num = len(train_data) // FLAGS.batch_size
+    iter_num_for_gpu = len(train_data) // (FLAGS.batch_size // world_size)
+    iter_num_for_gpu -= FLAGS.seq_len
     ind = np.array(range(start_index, end_index)) * iter_num
     print(f"ind {ind}")
     print(f"ind[0] {ind[0]}")
@@ -340,9 +341,9 @@ def encode(rank,world_size,temp_dir, compressed_file, FLAGS, series, train_data,
     
     """ torch.distributed.barrier() """
 
-    print(iter_num)
+    print(iter_num_for_gpu)
     dist.barrier()
-    for train_index in range(iter_num):
+    for train_index in range(iter_num_for_gpu):
         """ print(f"[DEBUG] Training iteration {train_index} on rank {rank}") """
         
         model.train()
@@ -507,21 +508,21 @@ def main(rank, world_size):
   
 
   total_length = len(train_data)
-  print(f"Total length: {total_length}")
+  """ print(f"Total length: {total_length}") """
   l = total_length // FLAGS.batch_size * FLAGS.batch_size
-  print(f"Total length L: {l}")
+  """ print(f"Total length L: {l}") """
   num_batches_per_gpu = l // world_size
-  print(f"Number of batches per GPU: {num_batches_per_gpu}")
+  """ print(f"Number of batches per GPU: {num_batches_per_gpu}") """
   extra_batches = total_length % world_size
-  print(f"Extra batches: {extra_batches}")
+  """ print(f"Extra batches: {extra_batches}") """
   
   start_idx = rank * num_batches_per_gpu + min(rank, extra_batches)
   end_idx = start_idx + num_batches_per_gpu + (1 if rank < extra_batches else 0)
 
-  print(f"Rank {rank} processing data from index {start_idx} to {end_idx}")
+  """ print(f"Rank {rank} processing data from index {start_idx} to {end_idx}") """
 
   series_partition = series[start_idx:end_idx + FLAGS.seq_len]
-  print(f"Series End: {series_partition[-FLAGS.seq_len:]}")
+  """ print(f"Series End: {series_partition[-FLAGS.seq_len:]}") """
 
   dist.barrier()
   if rank == world_size - 1:
