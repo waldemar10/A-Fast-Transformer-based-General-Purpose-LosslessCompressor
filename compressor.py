@@ -311,7 +311,7 @@ def encode(rank,world_size,temp_dir, compressed_file, FLAGS, series, train_data,
       print(f"ind[0] {ind[0]}")
       print(f"ind.size {ind.size}")
       print(f"Endindex {end_index}")
-      print(f"ind[end_index] {ind[end_index]}")
+      print(f"ind[end_index] {len(ind)}")
     iter_num -= FLAGS.seq_len
 
     for i in range(start_index, end_index):
