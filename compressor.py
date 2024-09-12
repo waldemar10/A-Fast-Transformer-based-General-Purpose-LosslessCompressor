@@ -545,6 +545,55 @@ def main(rank, world_size):
     print(f"Start Index: {start_idx}")
     print(f"End Index: {end_idx}")
 
+  if rank == 2:
+    print("RANK 2")
+    print(f"Total length: {total_length}")
+    print(f"Number of batches per GPU: {num_batches_per_gpu}")
+    print(f"Extra batches: {extra_batches}")
+    print(f"Start Index: {start_idx}")
+    print(f"End Index: {end_idx}")
+  
+  if rank == 3:
+    print("RANK 3")
+    print(f"Total length: {total_length}")
+    print(f"Number of batches per GPU: {num_batches_per_gpu}")
+    print(f"Extra batches: {extra_batches}")
+    print(f"Start Index: {start_idx}")
+    print(f"End Index: {end_idx}")
+  
+  if rank == 4:
+    print("RANK 4")
+    print(f"Total length: {total_length}")
+    print(f"Number of batches per GPU: {num_batches_per_gpu}")
+    print(f"Extra batches: {extra_batches}")
+    print(f"Start Index: {start_idx}")
+    print(f"End Index: {end_idx}")
+  
+  if rank == 5:
+    print("RANK 5")
+    print(f"Total length: {total_length}")
+    print(f"Number of batches per GPU: {num_batches_per_gpu}")
+    print(f"Extra batches: {extra_batches}")
+    print(f"Start Index: {start_idx}")
+    print(f"End Index: {end_idx}")
+  
+  if rank == 6:
+    print("RANK 6")
+    print(f"Total length: {total_length}")
+    print(f"Number of batches per GPU: {num_batches_per_gpu}")
+    print(f"Extra batches: {extra_batches}")
+    print(f"Start Index: {start_idx}")
+    print(f"End Index: {end_idx}")
+  
+  if rank == 7:
+    print("RANK 7")
+    print(f"Total length: {total_length}")
+    print(f"Number of batches per GPU: {num_batches_per_gpu}")
+    print(f"Extra batches: {extra_batches}")
+    print(f"Start Index: {start_idx}")
+    print(f"End Index: {end_idx}")
+  
+
   dist.barrier()
   if rank == world_size - 1:
       if total_length % FLAGS.batch_size == 0:
