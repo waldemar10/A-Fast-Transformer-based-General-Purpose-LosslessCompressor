@@ -337,7 +337,7 @@ def encode(rank,world_size,temp_dir, compressed_file, FLAGS, series, train_data,
     model = compress_model.SLiMPerformer(FLAGS.vocab_size, FLAGS.vocab_dim, FLAGS.hidden_dim,
                                              FLAGS.n_layers, FLAGS.ffn_dim,
                                              FLAGS.n_heads, FLAGS.feature_type, FLAGS.compute_type).cuda()
-    print(model)
+    """ print(model) """
     
     try:
       model = DDP(model, device_ids=[rank])
@@ -543,6 +543,7 @@ def main(rank, world_size):
   if rank == 0:
     print("RANK 0")
     print(f"RANK 0 Total length: {total_length}")
+    print(f"RANK 0 Train Data Size: {train_data.size}")
     print(f"RANK 0 Number of batches per GPU: {num_batches_per_gpu}")
     print(f"RANK 0 Start Index: {start_idx}")
     print(f"RANK 0 End Index: {end_idx}")
