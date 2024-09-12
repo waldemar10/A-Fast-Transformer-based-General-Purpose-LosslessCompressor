@@ -8,9 +8,13 @@ import psutil
 import numpy as np
 import torch
 import torch.nn.functional as F
+import torch.multiprocessing as mp
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
 import shutil
 import GPUtil
 import threading
+import sys
 
 import compress_model
 import arithmeticcoding_fast
@@ -54,6 +58,32 @@ flags.DEFINE_integer('vocab_size', 256, 'Vocabulary size of data.')
 flags.DEFINE_string('input_dir', 'aaa', 'input data dir')
 flags.DEFINE_string('prefix', 'text8', 'output dir')
 
+""" os.environ['MASTER_ADDR'] = 'localhost'
+os.environ['MASTER_PORT'] = '12355' """
+os.environ["USE_LIBUV"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,4,5,6,7"
+
+
+def init_distributed_mode(rank,world_size):
+    """ print(torch.distributed.is_nccl_available()) """
+    """ dist.TCPStore('localhost', '12355', 1, True, use_libuv=False) """
+    """ print(f"Number of GPUs available: {torch.cuda.device_count()}") """
+    print(f"Current GPU: {torch.cuda.current_device()} - {torch.cuda.get_device_name(torch.cuda.current_device())}")
+    """ print(torch.cuda.device_count()) 
+    print(torch.cuda.is_available()) """
+
+    os.environ["MASTER_ADDR"] = "localhost"
+    os.environ["MASTER_PORT"] = "12355"
+    dist.init_process_group(backend='nccl',rank=rank, world_size=world_size)
+    print(f"Rank: {rank}")
+    torch.cuda.set_device(rank)
+    print(f"Current GPU: {torch.cuda.current_device()} - {torch.cuda.get_device_name(torch.cuda.current_device())}")
+    print("Init Process Group")
+
+    """ torch.cuda.set_device(int(FLAGS.gpu_id.split(',')[0])) """
+
+    print("Set Device")
+
 def get_gpu_usage():
     if torch.cuda.is_available():
         return torch.cuda.memory_allocated() / 1024**2, torch.cuda.memory_reserved() / 1024**2
@@ -95,48 +125,71 @@ def log_resource_usage(start_time, phase, file_path, original_size=None, compres
             f.write(f"{phase} GPU Usage: {gpu_usage:.2f} %\n")
         f.write("\n")
 
-def decode(temp_dir, compressed_file, FLAGS, len_series, last):
+def decode(rank,temp_dir, compressed_file, FLAGS, len_series, last):
+
+  start_index = rank * (FLAGS.batch_size // torch.distributed.get_world_size())
+  end_index = ((rank + 1) * (FLAGS.batch_size // torch.distributed.get_world_size()))
+
   cpu_usages, memory_usages, gpu_usages = [], [], []
   stop_event = threading.Event()
   monitor_thread = threading.Thread(target=monitor_resources, args=(cpu_usages, memory_usages, gpu_usages, stop_event))
   monitor_thread.start()
   start_time = time.time()
-  bs = FLAGS.batch_size
+  bs = FLAGS.batch_size // torch.distributed.get_world_size()
 
   iter_num = (len_series - FLAGS.seq_len) // FLAGS.batch_size
-  
-  ind = np.array(range(bs))*iter_num
-  print(iter_num - FLAGS.seq_len)
-  series_2d = np.zeros((bs,iter_num), dtype = np.uint8).astype('int')
+  """ iter_num = iter_num // world_size """
+  print(f"Iterationszahl pro Batch: {iter_num - FLAGS.seq_len}")
 
-  f = [open(temp_dir+"/"+compressed_file+'.'+str(i),'rb') for i in range(bs)]
+  """ ind = np.array(range(bs))*iter_num """
+  ind = np.array(range(start_index, end_index)) * iter_num
+
+  series_2d = np.zeros((bs,iter_num), dtype = np.uint8).astype('int')
+  print(series_2d)
+  """ temp_dir_rank = temp_dir + f"/rank_{rank}_temp" """
+  f = [open(temp_dir + "/" + compressed_file + '.' + str(i), 'rb') for i in range(start_index,end_index)]
+  bitin = [arithmeticcoding_fast.BitInputStream(f[i-start_index]) for i in range(start_index,end_index)]
+  dec = [arithmeticcoding_fast.ArithmeticDecoder(32, bitin[i-start_index]) for i in range(start_index,end_index)]
+
+  """ f = [open(temp_dir+"/"+compressed_file+'.'+str(i),'rb') for i in range(bs)]
   bitin = [arithmeticcoding_fast.BitInputStream(f[i]) for i in range(bs)]
-  dec = [arithmeticcoding_fast.ArithmeticDecoder(32, bitin[i]) for i in range(bs)]
+  dec = [arithmeticcoding_fast.ArithmeticDecoder(32, bitin[i]) for i in range(bs)] """
 
   prob = np.ones(FLAGS.vocab_size)/FLAGS.vocab_size
   cumul = np.zeros(FLAGS.vocab_size+1, dtype = np.uint64)
   cumul[1:] = np.cumsum(prob*10000000 + 1)
 
   # Decode first K symbols in each stream with uniform probabilities
-  for i in range(bs):
+  for i in range(start_index, end_index):
     for j in range(min(FLAGS.seq_len, iter_num)):
-      series_2d[i,j] = dec[i].read(cumul, FLAGS.vocab_size)
+      series_2d[i - start_index, j] = dec[i - start_index].read(cumul, FLAGS.vocab_size)
   
-  cumul_batch = np.zeros((bs, FLAGS.vocab_size+1), dtype = np.uint64)
+  cumul_batch = np.zeros((end_index - start_index, FLAGS.vocab_size+1), dtype = np.uint64)
 
-  os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu_id
+  
   np.random.seed(FLAGS.random_seed)
   torch.manual_seed(FLAGS.random_seed)
 
-  model = compress_model.SLiMPerformer(FLAGS.vocab_size, FLAGS.vocab_dim, FLAGS.hidden_dim,FLAGS.n_layers, FLAGS.ffn_dim,FLAGS.n_heads, FLAGS.feature_type, FLAGS.compute_type).cuda()
+  model = compress_model.SLiMPerformer(FLAGS.vocab_size, FLAGS.vocab_dim,
+                                        FLAGS.hidden_dim,FLAGS.n_layers, 
+                                        FLAGS.ffn_dim,FLAGS.n_heads, FLAGS.feature_type, 
+                                        FLAGS.compute_type).cuda()
   print(model)
 
+  try:
+      model = DDP(model, device_ids=[rank])
+  except Exception as e:
+      print(f"DDP Initialization Error on rank {rank}: {e}")
+  
   optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate, weight_decay=FLAGS.weight_decay, betas=(.9, .999))
-
+  
   training_start = time.time()
+  print("Decode")
+  print(iter_num)
   for train_index in range(iter_num-FLAGS.seq_len):
     model.train()
     train_batch = torch.LongTensor(series_2d[:, train_index:train_index + FLAGS.seq_len]).cuda()
+    
     logits = model.forward(train_batch)
     prob = logits[:, -1, :]
     prob = F.softmax(prob, dim=1).detach().cpu().numpy()
@@ -159,16 +212,21 @@ def decode(temp_dir, compressed_file, FLAGS, len_series, last):
       print(train_index, ":", train_loss.item()/np.log(2))
   
     
-  out = open('tttdecompressed_out', 'w', encoding='utf-8')
+  """ out = open('tttdecompressed_out', 'w', encoding='utf-8')
   for i in range(len(series_2d)):
-    out.write(utils.decode_tokens(series_2d[i]).encode('utf-8', errors='ignore').decode('utf-8'))
+    out.write(utils.decode_tokens(series_2d[i]).encode('utf-8', errors='ignore').decode('utf-8')) """
+  
+  output_file = os.path.join(temp_dir, f'decompressed_{rank}.out')
+  with open(output_file, 'w', encoding='utf-8') as out:
+        for i in range(bs):
+            out.write(utils.decode_tokens(series_2d[i]).encode('utf-8', errors='ignore').decode('utf-8'))
   
   
-  for i in range(bs):
+  """ for i in range(bs):
     bitin[i].close()
-    f[i].close()
-
-  if last:
+    f[i].close() """
+ 
+  """ if last:
     series = np.zeros(last, dtype = np.uint8).astype('int')
     f = open(temp_dir+"/"+compressed_file+'.last','rb')
     bitin = arithmeticcoding_fast.BitInputStream(f)
@@ -184,104 +242,193 @@ def decode(temp_dir, compressed_file, FLAGS, len_series, last):
     out.write(utils.decode_tokens(series))
     print(utils.decode_tokens(series))
     bitin.close()
-    f.close()
+    f.close() """
 
-    stop_event.set()
-    monitor_thread.join()
+  if last:
+        series = np.zeros(last, dtype=np.uint8).astype('int')
+        with open(os.path.join(temp_dir, compressed_file + '.last'), 'rb') as f:
+            bitin = arithmeticcoding_fast.BitInputStream(f)
+            dec = arithmeticcoding_fast.ArithmeticDecoder(32, bitin)
+            prob = np.ones(FLAGS.vocab_size) / FLAGS.vocab_size
+            cumul = np.zeros(FLAGS.vocab_size + 1, dtype=np.uint64)
+            cumul[1:] = np.cumsum(prob * 10000000 + 1)
 
-    avg_cpu_usage = sum(cpu_usages) / len(cpu_usages) if cpu_usages else 0
-    avg_memory_usage = sum(memory_usages) / len(memory_usages) if memory_usages else 0
-    avg_gpu_usage = sum(gpu_usages) / len(gpu_usages) if gpu_usages else 0
+            for j in range(last):
+                series[j] = dec.read(cumul, FLAGS.vocab_size)
 
-    log_resource_usage(start_time, "Decode", "analysis.txt",original_size=None, compressed_size=None, cpu_usage=avg_cpu_usage,
+        with open(output_file, 'a', encoding='utf-8') as out:
+            out.write(utils.decode_tokens(series))
+            print(utils.decode_tokens(series))
+
+  stop_event.set()
+  monitor_thread.join()
+
+  avg_cpu_usage = sum(cpu_usages) / len(cpu_usages) if cpu_usages else 0
+  avg_memory_usage = sum(memory_usages) / len(memory_usages) if memory_usages else 0
+  avg_gpu_usage = sum(gpu_usages) / len(gpu_usages) if gpu_usages else 0
+
+  log_resource_usage(start_time, "Decode", "analysis.txt",original_size=None, compressed_size=None, cpu_usage=avg_cpu_usage,
                         memory_usage=avg_memory_usage, gpu_usage=avg_gpu_usage)
-    return
+  return
  
 
-def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data):
+def encode(rank,world_size,temp_dir, compressed_file, FLAGS, series, train_data, last_train_data):
+    
+    
+    print(f"Number of GPUs available: {torch.cuda.device_count()}")
+    print(f"Current GPU: {torch.cuda.current_device()} - {torch.cuda.get_device_name(torch.cuda.current_device())}")
+    bs = FLAGS.batch_size // torch.distributed.get_world_size()
+
+    # Initialize file handles and encoders for the current GPU's portion of the batch
+    start_index = rank * (FLAGS.batch_size // torch.distributed.get_world_size())
+    end_index = ((rank + 1) * (FLAGS.batch_size // torch.distributed.get_world_size()))
+
     cpu_usages, memory_usages, gpu_usages = [], [], []
     stop_event = threading.Event()
     monitor_thread = threading.Thread(target=monitor_resources, args=(cpu_usages, memory_usages, gpu_usages, stop_event))
     monitor_thread.start()
     start_time = time.time()
-    bs = FLAGS.batch_size
+    """ bs = FLAGS.batch_size """
 
-    f = [open(temp_dir+"/"+compressed_file+'.'+str(i),'wb') for i in range(bs)]
-    bitout = [arithmeticcoding_fast.BitOutputStream(f[i]) for i in range(bs)]
-    enc = [arithmeticcoding_fast.ArithmeticEncoder(32, bitout[i]) for i in range(bs)]
+    print(start_index,end_index)
+    f = [open(os.path.join(temp_dir, compressed_file + '.' + str(i)), 'wb') for i in range(start_index, end_index)]
+    bitout = [arithmeticcoding_fast.BitOutputStream(f[i - start_index]) for i in range(start_index, end_index)]
+    enc = [arithmeticcoding_fast.ArithmeticEncoder(32, bitout[i - start_index]) for i in range(start_index, end_index)]
+    print("Encoder initialized")
+    torch.distributed.barrier()
     
     prob = np.ones(FLAGS.vocab_size)/FLAGS.vocab_size
     cumul = np.zeros(FLAGS.vocab_size+1, dtype=np.uint64)
     cumul[1:] = np.cumsum(prob*10000000 + 1)
     
-    iter_num = len(train_data) // FLAGS.batch_size
-    ind = np.array(range(bs))*iter_num
+    # New iteration depending on the number of GPUs
+    iter_num = len(train_data) // (FLAGS.batch_size // world_size)
+
+    ind = np.array(range(start_index, end_index)) * iter_num
+    print(f"ind {ind}")
+    print(f"ind[0] {ind[0]}")
+    print(f"ind.size {ind.size}")
     iter_num -= FLAGS.seq_len
 
-    for i in range(bs):
+    for i in range(start_index, end_index):
         for j in range(FLAGS.seq_len):
-            enc[i].write(cumul, series[ind[i]+j])
-    
-    cumul_batch = np.zeros((bs, FLAGS.vocab_size+1), dtype = np.uint64)
+            enc[i - start_index].write(cumul, series[ind[i - start_index] + j])
 
+    
+    cumul_batch = np.zeros((end_index - start_index, FLAGS.vocab_size + 1), dtype=np.uint64)
+
+    """ local_rank = int(os.environ["LOCAL_RANK"]) """
+    torch.cuda.set_device(rank)
+    print("before model")
+    torch.distributed.barrier()
     model = compress_model.SLiMPerformer(FLAGS.vocab_size, FLAGS.vocab_dim, FLAGS.hidden_dim,
                                              FLAGS.n_layers, FLAGS.ffn_dim,
                                              FLAGS.n_heads, FLAGS.feature_type, FLAGS.compute_type).cuda()
     print(model)
+    
+    try:
+      model = DDP(model, device_ids=[rank])
+      print("Model wrapped in DDP")
+    except Exception as e:
+      print(f"DDP Initialization Error on rank {rank}: {e}")
+    
+
     optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate, weight_decay=FLAGS.weight_decay, betas=(.9, .999))
+    
+    """ print(rank)
+    print(f"Current GPU: {torch.cuda.current_device()} - {torch.cuda.get_device_name(torch.cuda.current_device())}") """
+    
+    """ torch.distributed.barrier() """
+
     print(iter_num)
+    dist.barrier()
     for train_index in range(iter_num):
+        """ print(f"[DEBUG] Training iteration {train_index} on rank {rank}") """
+        
         model.train()
-        train_batch = train_data[ind, :]
-        y = train_batch[:, -1]
-        train_batch = torch.from_numpy(train_batch).cuda().long()
+        try:
+            """ train_batch = train_data[ind[0] : ind[bs // torch.distributed.get_world_size()]] """
+            train_batch = train_data[ind, :]
+            y = train_batch[:, -1]
+            """ print(f"[DEBUG] Retrieved train batch of shape {train_batch.shape}") """
+        except Exception as e:
+            print(f"[ERROR] Failed to retrieve train batch at iteration {train_index}: {e}")
         
-        train_loss, logits = model.full_loss(train_batch, with_grad=True)
-        optimizer.step()
-        optimizer.zero_grad(set_to_none=True)
+        try:
+            train_batch = torch.from_numpy(train_batch).cuda().long()
+            train_loss, logits = model.module.full_loss(train_batch, with_grad=True)
+            """ print(f"[DEBUG] Model forward pass completed at iteration {train_index}") """
+        except Exception as e:
+            print(f"[ERROR] Model forward pass failed at iteration {train_index}: {e}")
         
+        try:
+            optimizer.step()
+            optimizer.zero_grad(set_to_none=True)
+            """ print(f"[DEBUG] Optimizer step and gradient zeroing completed at iteration {train_index}") """
+        except Exception as e:
+            print(f"[ERROR] Optimizer step failed at iteration {train_index}: {e}")
+
         logits = logits.transpose(1, 2)
-        prob = logits[:, -1, :]
-        prob = F.softmax(prob, dim=1).detach().cpu().numpy()
-        cumul_batch[:,1:] = np.cumsum(prob*10000000 + 1, axis = 1)
-        
-        for i in range(bs):
-            enc[i].write(cumul_batch[i,:], y[i])
+        prob = F.softmax(logits[:, -1, :], dim=1).detach().cpu().numpy()
+        cumul_batch[:, 1:] = np.cumsum(prob * 10000000 + 1, axis=1)
+
+        # Update encoder
+        for i in range(start_index, end_index):
+            try:
+                enc[i - start_index].write(cumul_batch[i - start_index, :], y[i - start_index])
+                """ print(f"[DEBUG] Encoder write successful for index {i}") """
+            except Exception as e:
+                print(f"[ERROR] Encoder write failed for index {i}: {e}")
         
         ind += 1
+        
+        # Periodic output
         if train_index % FLAGS.print_step == 0:
             size = 0
             for cf in os.listdir(temp_dir):
-                size += os.path.getsize(temp_dir+"/"+cf)
-            print(train_index, ":", train_loss.item()/np.log(2), "size:", size/(1024*1024))
+                size += os.path.getsize(os.path.join(temp_dir, cf))
+            print(f" Iteration on Rank: {rank} : {train_index}: Train loss {train_loss.item() / np.log(2)}, size: {size / (1024 * 1024)} MB")
     
-    for i in range(bs):
-        enc[i].finish()
-        bitout[i].close()
-        f[i].close()
+    print(f"[DEBUG] Training completed on rank {rank}")
+    dist.barrier()
+    # Close encoders and file handles
+    for i in range(start_index, end_index):
+        enc[i - start_index].finish()
+        bitout[i - start_index].close()
+        f[i - start_index].close()
+    print(f"[DEBUG] Encoders closed on rank {rank}")
+    print(f"world_size: {world_size}")
+    dist.barrier()
+    # Encode the last part of the series
+    if rank == world_size - 1:
+      if last_train_data is not None:
+          print("Last series")
+          with open(os.path.join(temp_dir, compressed_file + '.last'), 'wb') as f:
+              bitout = arithmeticcoding_fast.BitOutputStream(f)
+              enc = arithmeticcoding_fast.ArithmeticEncoder(32, bitout)
+              prob = np.ones(FLAGS.vocab_size) / FLAGS.vocab_size
+              cumul = np.zeros(FLAGS.vocab_size + 1, dtype=np.uint64)
+              cumul[1:] = np.cumsum(prob * 10000000 + 1)
 
-    if last_train_data is not None:
-        print("last series")
-        f = open(temp_dir+"/"+compressed_file+'.last','wb')
-        bitout = arithmeticcoding_fast.BitOutputStream(f)
-        enc = arithmeticcoding_fast.ArithmeticEncoder(32, bitout)
-        prob = np.ones(FLAGS.vocab_size)/FLAGS.vocab_size
-        cumul = np.zeros(FLAGS.vocab_size+1, dtype=np.uint64)
-        cumul[1:] = np.cumsum(prob*10000000 + 1)
-    
-        for j in range(len(last_train_data)):
-            enc.write(cumul, last_train_data[j])
-        print("Last encode part don't need inference.")
-    
-        enc.finish()
-        bitout.close()
-        f.close()
-    
+              for j in range(len(last_train_data)):
+                  
+                  enc.write(cumul, last_train_data[j])
+                  
+              print("Last encode part don't need inference.")
+              enc.finish()
+              bitout.close()
+    dist.barrier()
+    print("Encode finished")
+
     # Compute the size of the compressed file
-    compressed_size = sum(os.path.getsize(temp_dir + "/" + compressed_file + '.' + str(i)) for i in range(bs))
+    """ compressed_size = sum(os.path.getsize(os.path.join(temp_dir, compressed_file + '.' + str(i))) for i in range(start_index, end_index))
     if last_train_data is not None:
-        compressed_size += os.path.getsize(temp_dir + "/" + compressed_file + '.last')
-    stop_event.set()
+        compressed_size += os.path.getsize(os.path.join(temp_dir, compressed_file + '.last'))
+    if rank == 0:
+      print(f"Total compressed file size: {compressed_size / (1024 * 1024)} MB") """
+
+    # Log resource usage
+    """  stop_event.set()
     monitor_thread.join()
 
     avg_cpu_usage = sum(cpu_usages) / len(cpu_usages) if cpu_usages else 0
@@ -292,7 +439,7 @@ def encode(temp_dir, compressed_file, FLAGS, series, train_data, last_train_data
     original_size = os.path.getsize(input_file_path)
     # Log resource usage
     log_resource_usage(start_time, "Encode", "analysis.txt", original_size=original_size, compressed_size=compressed_size,cpu_usage=avg_cpu_usage,
-                        memory_usage=avg_memory_usage, gpu_usage=avg_gpu_usage)
+                        memory_usage=avg_memory_usage, gpu_usage=avg_gpu_usage) """
     return
     
 def var_int_encode(byte_str_len, f):
@@ -317,20 +464,34 @@ def var_int_decode(f):
         byte_str_len += shift
     return byte_str_len
 
-def main(_):
-
+def main(rank, world_size):
+  FLAGS(sys.argv)
+  init_distributed_mode(rank, world_size)
+  print(f"Prozess {rank} verwendet GPU {torch.cuda.current_device()}")
   with open("analysis.txt", 'w', encoding='utf-8') as f:
         f.write("Analysis of Compression and Decompression\n")
 
-  os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu_id
   np.random.seed(FLAGS.random_seed)
   torch.manual_seed(FLAGS.random_seed)
 
-  temp_dir = "{}_{}_{}_{}_bs{}_{}_seq{}_temp".format(FLAGS.prefix, FLAGS.vocab_dim, FLAGS.hidden_dim, FLAGS.ffn_dim, FLAGS.batch_size, FLAGS.n_layers, FLAGS.seq_len)
-  compressed_file = temp_dir.replace("_temp", ".compressed")
-  os.mkdir(temp_dir)
-  print(compressed_file)
-  
+  main_temp_dir = "{}_{}_{}_{}_bs{}_{}_seq{}_temp".format(
+        FLAGS.prefix, FLAGS.vocab_dim, FLAGS.hidden_dim, FLAGS.ffn_dim,
+        FLAGS.batch_size, FLAGS.n_layers, FLAGS.seq_len)
+
+  if rank == 0:
+        if not os.path.exists(main_temp_dir):
+            os.mkdir(main_temp_dir)
+        print(f"Hauptordner {main_temp_dir} erstellt.")
+
+  dist.barrier()
+
+  temp_dir = os.path.join(main_temp_dir, f"rank_{rank}_temp")
+  if not os.path.exists(temp_dir):
+        os.mkdir(temp_dir)
+  print(f"Rank {rank} erstellt Unterordner {temp_dir}")
+
+  compressed_file = main_temp_dir.replace("_temp", ".compressed")
+
   def strided_app(a, L, S):  # Window len = L, Stride len/stepsize = S
     nrows = ((a.size - L) // S) + 1
     n = a.strides[0]
@@ -344,49 +505,106 @@ def main(_):
     series = np.fromstring(fp.read(), dtype=np.uint8)
   train_data = strided_app(series, FLAGS.seq_len+1, 1)
   
-  total_length = len(train_data)
-  if total_length % FLAGS.batch_size == 0:
-    encode(temp_dir, compressed_file, FLAGS, series, train_data, None)
-  else:
-    l = total_length // FLAGS.batch_size * FLAGS.batch_size
-    encode(temp_dir, compressed_file, FLAGS, series[:l+FLAGS.seq_len], train_data[:l], series[l:])
 
+  total_length = len(train_data)
+  print(f"Total length: {total_length}")
+  l = total_length // FLAGS.batch_size * FLAGS.batch_size
+  print(f"Total length L: {l}")
+  num_batches_per_gpu = l // world_size
+  print(f"Number of batches per GPU: {num_batches_per_gpu}")
+  extra_batches = total_length % world_size
+  print(f"Extra batches: {extra_batches}")
+  
+  start_idx = rank * num_batches_per_gpu + min(rank, extra_batches)
+  end_idx = start_idx + num_batches_per_gpu + (1 if rank < extra_batches else 0)
+
+  print(f"Rank {rank} processing data from index {start_idx} to {end_idx}")
+
+  series_partition = series[start_idx:end_idx + FLAGS.seq_len]
+  print(f"Series End: {series_partition[-FLAGS.seq_len:]}")
+
+  dist.barrier()
+  if rank == world_size - 1:
+      if total_length % FLAGS.batch_size == 0:
+        encode(rank,world_size, temp_dir, compressed_file, FLAGS, series_partition, train_data[start_idx:end_idx], None)
+      else:
+        encode(rank,world_size, temp_dir, compressed_file, FLAGS, series_partition, train_data[start_idx:end_idx], series[end_idx:])
+  else:
+      encode(rank,world_size, temp_dir, compressed_file, FLAGS, series_partition, train_data[start_idx:end_idx], None)
+ 
+  
+  dist.barrier()
+  
+  iterr = (FLAGS.batch_size // world_size)-1
+  rank_counter = 0
+  if rank == 0:
   #Combined compressed results
-  f = open(compressed_file+'.combined','wb')
-  for i in range(FLAGS.batch_size):
-    f_in = open(temp_dir+'/'+compressed_file+'.'+str(i),'rb')
-    byte_str = f_in.read()
-    byte_str_len = len(byte_str)
-    var_int_encode(byte_str_len, f)
-    f.write(byte_str)
-    f_in.close()
+    print("Start combining")
+    f = open(compressed_file+'.combined','wb')
+    for i in range(FLAGS.batch_size):
+      
+      #Update rank_counter and iterr
+      if i>iterr:
+        iterr += FLAGS.batch_size // world_size
+        rank_counter += 1
+      
+      #Update temp_dir
+      temp_dir = os.path.join(main_temp_dir, f"rank_{rank_counter}_temp")
+      #Load compressed file
+      f_in = open(temp_dir+'/'+compressed_file+'.'+str(i),'rb')
+      byte_str = f_in.read()
+      byte_str_len = len(byte_str)
+
+      #Encode and write to the combined file
+      var_int_encode(byte_str_len, f)
+      f.write(byte_str)
+      f_in.close()
+    
+    if total_length % FLAGS.batch_size != 0:
+      temp_dir = os.path.join(main_temp_dir, f"rank_{rank_counter}_temp")
+      f_in = open(temp_dir+'/'+compressed_file+'.last','rb')
+      byte_str = f_in.read()
+      byte_str_len = len(byte_str)
+      var_int_encode(byte_str_len, f)
+      f.write(byte_str)
+      f_in.close()
+
+    f.close()
   
-  if total_length % FLAGS.batch_size != 0:
-    f_in = open(temp_dir+'/'+compressed_file+'.last','rb')
-    byte_str = f_in.read()
-    byte_str_len = len(byte_str)
-    var_int_encode(byte_str_len, f)
-    f.write(byte_str)
-    f_in.close()
-  f.close()
+    combined_file_size = os.path.getsize(compressed_file + '.combined')
   
-  total = 0
-  for ff in os.listdir(temp_dir):
-    total += os.path.getsize(temp_dir+'/'+ff)
-  
-  print(total/(1024*1024))
-  
+    print(f"Total combined compressed file size: {combined_file_size / (1024 * 1024)} MB")
+
+  dist.barrier()
   #Remove temp file
-  shutil.rmtree(temp_dir)
-  
+  print("Start decoding")
+  """ shutil.rmtree(temp_dir)   """ 
+          
+  #Remove all temp files
+  """ shutil.rmtree(main_temp_dir)
+
+  #Now need to create the same dir again
   #Decode
-  os.mkdir(temp_dir)
-  
+  if rank == 0:             
+        if not os.path.exists(main_temp_dir):
+            os.mkdir(main_temp_dir)
+        print(f"Hauptordner {main_temp_dir} erstellt.")
+
+ 
+  temp_dir = os.path.join(main_temp_dir, f"rank_{rank}_temp")   
+
+  if not os.path.exists(temp_dir):
+        os.mkdir(temp_dir)
+        print(f"Decompression: Rank {rank} erstellt Unterordner {temp_dir}")
+
+  dist.barrier()
   #Split compressed file
   
   f = open(compressed_file+'.combined','rb')
   len_series = len(series) 
-  for i in range(FLAGS.batch_size):
+  start_index = rank * (FLAGS.batch_size // torch.distributed.get_world_size())
+  end_index = ((rank + 1) * (FLAGS.batch_size // torch.distributed.get_world_size()))-1
+  for i in range(start_index, end_index):
     f_out = open(temp_dir+'/'+compressed_file+'.'+str(i),'wb')
     byte_str_len = var_int_decode(f)
     byte_str = f.read(byte_str_len)
@@ -402,11 +620,27 @@ def main(_):
   
   len_series = len(series)
   if (len_series-FLAGS.seq_len) % FLAGS.batch_size == 0:
-    decode(temp_dir, compressed_file, FLAGS, len_series, 0)
+    decode(rank,temp_dir, compressed_file, FLAGS, len_series, 0)
   else:
     last_length = (len_series - FLAGS.seq_len) % FLAGS.batch_size + FLAGS.seq_len
-    decode(temp_dir, compressed_file, FLAGS, len_series, last_length)
+    decode(rank,temp_dir, compressed_file, FLAGS, len_series, last_length)
+  dist.barrier()
+  if rank == 0:
+    combine_decompressed_files(main_temp_dir, world_size, FLAGS.prefix + '.out') """
+
+  dist.destroy_process_group()
   
+def combine_decompressed_files(main_temp_dir, num_gpus, output_file):
+    with open(output_file, 'wb') as outfile:
+        for rank in range(num_gpus):
+            input_file = os.path.join(main_temp_dir, f'decompressed_{rank}.out')
+            with open(input_file, 'rb') as infile:
+                outfile.write(infile.read())
+
+            
+            """ os.remove(input_file) """
 
 if __name__ == '__main__':
-  app.run(main)
+  world_size = torch.cuda.device_count() 
+  mp.spawn(main, args=(world_size,), nprocs=world_size, join=True)
+  """ app.run(main) """
