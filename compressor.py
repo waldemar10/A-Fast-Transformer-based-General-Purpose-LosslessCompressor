@@ -522,7 +522,7 @@ def main(rank, world_size):
   """ start_idx = rank * num_batches_per_gpu + min(rank, extra_batches)
   end_idx = start_idx + num_batches_per_gpu + (1 if rank < extra_batches else 0) """
   start_idx = rank * num_batches_per_gpu
-  end_idx = start_idx + num_batches_per_gpu 
+  end_idx = start_idx + num_batches_per_gpu - 1 #fix out of bounds error
 
   """ print(f"Rank {rank} processing data from index {start_idx} to {end_idx}") """
 
@@ -535,9 +535,7 @@ def main(rank, world_size):
     print(f"Extra batches: {extra_batches}")
     print(f"Start Index: {start_idx}")
     print(f"End Index: {end_idx}")
-    print(f"Series Partition: {series_partition}")
-    print(f"Series Partition Length: {len(series_partition)}")
-    print(f"Series Partition End: {series_partition[-FLAGS.seq_len:]}")
+
 
   if rank == 1:
     print("RANK 1")
@@ -546,9 +544,6 @@ def main(rank, world_size):
     print(f"Extra batches: {extra_batches}")
     print(f"Start Index: {start_idx}")
     print(f"End Index: {end_idx}")
-    print(f"Series Partition: {series_partition}")
-    print(f"Series Partition Length: {len(series_partition)}")
-    print(f"Series Partition End: {series_partition[-FLAGS.seq_len:]}")
 
   dist.barrier()
   if rank == world_size - 1:
