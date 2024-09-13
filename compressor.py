@@ -288,8 +288,8 @@ def encode(rank,world_size,temp_dir, compressed_file, FLAGS, series, train_data,
     monitor_thread.start()
     start_time = time.time()
     """ bs = FLAGS.batch_size """
-
-    print(start_index,end_index)
+    if rank == world_size - 1:
+      print(f"rank {rank} startindex: {start_index} end_index: {end_index} diff: {end_index - start_index}")
     f = [open(os.path.join(temp_dir, compressed_file + '.' + str(i)), 'wb') for i in range(start_index, end_index)]
     bitout = [arithmeticcoding_fast.BitOutputStream(f[i - start_index]) for i in range(start_index, end_index)]
     enc = [arithmeticcoding_fast.ArithmeticEncoder(32, bitout[i - start_index]) for i in range(start_index, end_index)]
@@ -306,20 +306,22 @@ def encode(rank,world_size,temp_dir, compressed_file, FLAGS, series, train_data,
     
     ind = np.array(range(start_index, end_index)) * iter_num
     if rank == world_size - 1:
-      print(f"RANK 7 ind {ind}")
+      print(f"rank {rank} indsize: {ind.size} iter_num: {iter_num} np.array(range(start_index, end_index)) {np.array(range(start_index, end_index))}")
+    if rank == world_size - 1:
+      """ print(f"RANK 7 ind {ind}")
       print(f"RANK 7 ind[0] {ind[0]}")
       print(f"RANK 7 ind.size {ind.size}")
       print(f"RANK 7 startindex {start_index}")
-      print(f"RANK 7 Endindex {end_index}")
+      print(f"RANK 7 Endindex {end_index}") """
       iter_num_for_gpu -= FLAGS.seq_len
       iter_num -= FLAGS.seq_len
     
     if rank == world_size - 2:
-      print(f"RANK 6 ind {ind}")
+      """ print(f"RANK 6 ind {ind}")
       print(f"RANK 6 ind[0] {ind[0]}")
       print(f"RANK 6 ind.size {ind.size}")
       print(f"RANK 6 startindex {start_index}")
-      print(f"RANK 6 Endindex {end_index}")
+      print(f"RANK 6 Endindex {end_index}") """
     
 
     for i in range(start_index, end_index):
