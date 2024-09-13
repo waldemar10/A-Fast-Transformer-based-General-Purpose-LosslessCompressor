@@ -612,7 +612,7 @@ def main(rank, world_size):
             os.mkdir(main_temp_dir)
         print(f"Hauptordner {main_temp_dir} erstellt.")
 
- 
+  dist.barrier()
   temp_dir = os.path.join(main_temp_dir, f"rank_{rank}_temp")   
 
   if not os.path.exists(temp_dir):
