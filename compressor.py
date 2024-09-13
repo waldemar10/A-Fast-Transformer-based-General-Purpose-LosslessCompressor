@@ -127,18 +127,23 @@ def log_resource_usage(start_time, phase, file_path, original_size=None, compres
 
 def decode(rank,temp_dir, compressed_file, FLAGS, len_series, last):
 
-  start_index = rank * (FLAGS.batch_size // torch.distributed.get_world_size())
-  end_index = ((rank + 1) * (FLAGS.batch_size // torch.distributed.get_world_size()))
+  """ start_index = rank * (FLAGS.batch_size // torch.distributed.get_world_size())
+  end_index = ((rank + 1) * (FLAGS.batch_size // torch.distributed.get_world_size())) """
 
-  cpu_usages, memory_usages, gpu_usages = [], [], []
-  stop_event = threading.Event()
-  monitor_thread = threading.Thread(target=monitor_resources, args=(cpu_usages, memory_usages, gpu_usages, stop_event))
-  monitor_thread.start()
-  start_time = time.time()
+  if rank == 0:
+      start_time = time.time()
+
+  start_index = rank * (FLAGS.batch_size // torch.distributed.get_world_size())
+  end_index = (rank + 1) * (FLAGS.batch_size // world_size)
+  end_index = min(end_index, len_series) 
+
   bs = FLAGS.batch_size // torch.distributed.get_world_size()
 
   iter_num = (len_series - FLAGS.seq_len) // FLAGS.batch_size
+  iter_num_for_gpu = (len_series - FLAGS.seq_len) // (FLAGS.batch_size // world_size)
+
   """ iter_num = iter_num // world_size """
+
   print(f"Iterationszahl pro Batch: {iter_num - FLAGS.seq_len}")
 
   """ ind = np.array(range(bs))*iter_num """
@@ -185,28 +190,70 @@ def decode(rank,temp_dir, compressed_file, FLAGS, len_series, last):
   
   training_start = time.time()
   print("Decode")
-  print(iter_num)
-  for train_index in range(iter_num-FLAGS.seq_len):
-    model.train()
-    train_batch = torch.LongTensor(series_2d[:, train_index:train_index + FLAGS.seq_len]).cuda()
-    
-    logits = model.forward(train_batch)
-    prob = logits[:, -1, :]
-    prob = F.softmax(prob, dim=1).detach().cpu().numpy()
-    
-    cumul_batch[:,1:] = np.cumsum(prob*10000000 + 1, axis = 1)
+  print(iter_num_for_gpu)
 
-    # Decode with Arithmetic Encoder
-    for i in range(bs):
-      series_2d[i,train_index+FLAGS.seq_len] = dec[i].read(cumul_batch[i,:], FLAGS.vocab_size)
+  if rank == world_size - 1:
+    iter_num_for_gpu = iter_num_for_gpu-FLAGS.seq_len
+
+  for train_index in range(iter_num_for_gpu):
+
+    model.train()
+    try:
+        train_batch = torch.LongTensor(series_2d[:, train_index:train_index + FLAGS.seq_len]).cuda()
+    except Exception as e:
+        print(f"[ERROR] Fehler beim Laden des Batches: {e}")
+        continue
     
-    logits = logits.transpose(1, 2)
-    label = torch.from_numpy(series_2d[:, train_index+1:train_index+FLAGS.seq_len+1]).cuda()
-    label = label.type(torch.LongTensor).cuda()
-    train_loss = torch.nn.functional.cross_entropy(logits[:, :, -1], label[:, -1], reduction='mean')
-    train_loss.backward()
-    optimizer.step()
-    optimizer.zero_grad(set_to_none=True)
+    
+    try:
+        logits = model.forward(train_batch)
+    except Exception as e:
+        print(f"[ERROR] Fehler beim Modellvorlauf: {e}")
+        continue
+    
+    try:
+        prob = logits[:, -1, :]
+        prob = F.softmax(prob, dim=1).detach().cpu().numpy()
+    except Exception as e:
+        print(f"[ERROR] Fehler bei der Softmax-Berechnung: {e}")
+        continue
+    
+    try:
+        cumul_batch[:, 1:] = np.cumsum(prob * 10000000 + 1, axis=1)
+    except Exception as e:
+        print(f"[ERROR] Fehler beim Berechnen der kumulierten Wahrscheinlichkeiten: {e}")
+        continue
+
+    try:
+        for i in range(bs):
+            series_2d[i, train_index + FLAGS.seq_len] = dec[i].read(cumul_batch[i, :], FLAGS.vocab_size)
+    except Exception as e:
+        print(f"[ERROR] Fehler bei der arithmetischen Dekodierung: {e}")
+        continue
+    
+    try:
+        logits = logits.transpose(1, 2)
+        
+        label = torch.from_numpy(series_2d[:, train_index + 1:train_index + FLAGS.seq_len + 1]).cuda()
+        label = label.type(torch.LongTensor).cuda()
+    except Exception as e:
+        print(f"[ERROR] Fehler beim Vorbereiten der Labels: {e}")
+        continue
+    
+    try:
+        train_loss = torch.nn.functional.cross_entropy(logits[:, :, -1], label[:, -1], reduction='mean')
+
+        train_loss.backward()
+    except Exception as e:
+        print(f"[ERROR] Fehler beim Berechnen des Verlusts oder Backpropagation: {e}")
+        continue
+    
+    try:
+        optimizer.step()
+        optimizer.zero_grad(set_to_none=True)
+    except Exception as e:
+        print(f"[ERROR] Fehler beim Optimierungsschritt oder Zurücksetzen der Gradienten: {e}")
+        continue
     
     if train_index % FLAGS.print_step == 0:
       print(train_index, ":", train_loss.item()/np.log(2))
@@ -260,15 +307,8 @@ def decode(rank,temp_dir, compressed_file, FLAGS, len_series, last):
             out.write(utils.decode_tokens(series))
             print(utils.decode_tokens(series))
 
-  stop_event.set()
-  monitor_thread.join()
-
-  avg_cpu_usage = sum(cpu_usages) / len(cpu_usages) if cpu_usages else 0
-  avg_memory_usage = sum(memory_usages) / len(memory_usages) if memory_usages else 0
-  avg_gpu_usage = sum(gpu_usages) / len(gpu_usages) if gpu_usages else 0
-
-  log_resource_usage(start_time, "Decode", "analysis.txt",original_size=None, compressed_size=None, cpu_usage=avg_cpu_usage,
-                        memory_usage=avg_memory_usage, gpu_usage=avg_gpu_usage)
+  """ log_resource_usage(start_time, "Decode", "analysis.txt",original_size=None, compressed_size=None, cpu_usage=avg_cpu_usage,
+                        memory_usage=avg_memory_usage, gpu_usage=avg_gpu_usage) """
   return
  
 
@@ -642,13 +682,14 @@ def main(rank, world_size):
   f.close()
   
   len_series = len(series)
+  """ len_series = len(series_partition) """
   if (len_series-FLAGS.seq_len) % FLAGS.batch_size == 0:
     print("Decompression: Last part is a full batch.")
-    """ decode(rank,temp_dir, compressed_file, FLAGS, len_series, 0) """
+    decode(rank,temp_dir, compressed_file, FLAGS, len_series, 0)
   else:
     print("Decompression: Last part is not a full batch.")
-    """ last_length = (len_series - FLAGS.seq_len) % FLAGS.batch_size + FLAGS.seq_len
-    decode(rank,temp_dir, compressed_file, FLAGS, len_series, last_length) """
+    last_length = (len_series - FLAGS.seq_len) % FLAGS.batch_size + FLAGS.seq_len
+    decode(rank,temp_dir, compressed_file, FLAGS, len_series, last_length)
 
   dist.barrier()
 
