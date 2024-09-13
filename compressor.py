@@ -363,7 +363,7 @@ def encode(rank,world_size,temp_dir, compressed_file, FLAGS, series, train_data,
             """ train_batch = train_data[ind[0] : ind[bs // torch.distributed.get_world_size()]] """
             train_batch = train_data[ind, :]
             if rank == world_size - 1:
-                print(f"[DEBUG] RANK7 Retrieved train batch of shape {train_data[ind, :]}")
+                print(f"[DEBUG] RANK7 Retrieved train batch of shape {train_data.size}")
             
             y = train_batch[:, -1]
             """ print(f"[DEBUG] Retrieved train batch of shape {train_batch.shape}") """
