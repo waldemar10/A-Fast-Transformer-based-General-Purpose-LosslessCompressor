@@ -277,7 +277,6 @@ def encode(rank,world_size,seq_len, temp_dir, compressed_file, FLAGS, series, tr
     print(f"Number of GPUs available: {torch.cuda.device_count()}")
     print(f"Current GPU: {torch.cuda.current_device()} - {torch.cuda.get_device_name(torch.cuda.current_device())}")
 
-    # Initialize file handles and encoders for the current GPU's portion of the batch
     start_index = rank * (FLAGS.batch_size // torch.distributed.get_world_size())
     end_index = min((rank + 1) * (FLAGS.batch_size // world_size), len(train_data))
 
@@ -547,9 +546,9 @@ def main(rank, world_size):
       if total_length % FLAGS.batch_size == 0:
         encode(rank,world_size,FLAGS.seq_len, temp_dir, compressed_file, FLAGS, series_partition, train_data[start_idx:end_idx], None)
       else:
-        print(f"REST Rank {rank} processing last data from index {end_idx} to {total_length - 1}")
+        print(f"REST Rank {rank} processing last data from index {end_idx} to {total_length - 1} train_data[start_idx:l]: {train_data[start_idx:l]}")
         series_partition = series[start_idx:end_idx + FLAGS.seq_len]
-        train_data_partition = train_data[start_idx:l-1]
+        train_data_partition = train_data[start_idx:l]
         encode(rank,world_size,FLAGS.seq_len, temp_dir, compressed_file, FLAGS, series_partition, train_data_partition, series[end_idx:])
   else:
       encode(rank,world_size,FLAGS.seq_len, temp_dir, compressed_file, FLAGS, series_partition, train_data[start_idx:end_idx], None)
