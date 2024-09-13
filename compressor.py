@@ -274,7 +274,6 @@ def decode(rank,temp_dir, compressed_file, FLAGS, len_series, last):
 
 def encode(rank,world_size,temp_dir, compressed_file, FLAGS, series, train_data, last_train_data):
     
-    
     print(f"Number of GPUs available: {torch.cuda.device_count()}")
     print(f"Current GPU: {torch.cuda.current_device()} - {torch.cuda.get_device_name(torch.cuda.current_device())}")
     bs = FLAGS.batch_size // torch.distributed.get_world_size()
@@ -523,7 +522,7 @@ def main(rank, world_size):
   """ start_idx = rank * num_batches_per_gpu + min(rank, extra_batches)
   end_idx = start_idx + num_batches_per_gpu + (1 if rank < extra_batches else 0) """
   start_idx = rank * num_batches_per_gpu
-  end_idx = start_idx + num_batches_per_gpu - 1 #fix out of bounds error
+  end_idx = min(start_idx + num_batches_per_gpu - 1, total_length - 1) #fix out of bounds error
 
   """ print(f"Rank {rank} processing data from index {start_idx} to {end_idx}") """
 
