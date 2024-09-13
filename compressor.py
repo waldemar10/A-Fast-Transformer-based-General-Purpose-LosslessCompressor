@@ -280,7 +280,7 @@ def encode(rank,world_size,temp_dir, compressed_file, FLAGS, series, train_data,
 
     # Initialize file handles and encoders for the current GPU's portion of the batch
     start_index = rank * (FLAGS.batch_size // torch.distributed.get_world_size())
-    end_index = ((rank + 1) * (FLAGS.batch_size // torch.distributed.get_world_size()))-1
+    end_index = min((rank + 1) * (FLAGS.batch_size // world_size), len(train_data)) - 1
 
     cpu_usages, memory_usages, gpu_usages = [], [], []
     stop_event = threading.Event()
