@@ -277,8 +277,6 @@ def encode(rank,world_size,seq_len, temp_dir, compressed_file, FLAGS, series, tr
     print(f"Number of GPUs available: {torch.cuda.device_count()}")
     print(f"Current GPU: {torch.cuda.current_device()} - {torch.cuda.get_device_name(torch.cuda.current_device())}")
 
-    """ bs = FLAGS.batch_size // torch.distributed.get_world_size() """
-
     # Initialize file handles and encoders for the current GPU's portion of the batch
     start_index = rank * (FLAGS.batch_size // torch.distributed.get_world_size())
     end_index = min((rank + 1) * (FLAGS.batch_size // world_size), len(train_data))
@@ -295,7 +293,7 @@ def encode(rank,world_size,seq_len, temp_dir, compressed_file, FLAGS, series, tr
 
     
     if rank == world_size - 1:
-      print(f"rank {rank} startindex: {start_index} end_index: {end_index} diff: {end_index - start_index}")
+      """ print(f"rank {rank} startindex: {start_index} end_index: {end_index} diff: {end_index - start_index}") """
     
     f = [open(os.path.join(temp_dir, compressed_file + '.' + str(i)), 'wb') for i in range(start_index, end_index)]
     bitout = [arithmeticcoding_fast.BitOutputStream(f[i - start_index]) for i in range(start_index, end_index)]
@@ -316,22 +314,24 @@ def encode(rank,world_size,seq_len, temp_dir, compressed_file, FLAGS, series, tr
     
     ind = np.array(range(start_index, end_index)) * iter_num
     if rank == world_size - 1:
-      print(f"rank {rank} indsize: {ind.size} iter_num: {iter_num} np.array(range(start_index, end_index)) {np.array(range(start_index, end_index))}")
+      """ print(f"rank {rank} indsize: {ind.size} iter_num: {iter_num} np.array(range(start_index, end_index)) {np.array(range(start_index, end_index))}") """
     if rank == world_size - 1:
-      """ print(f"RANK 7 ind {ind}")
+      print(f"RANK 7 ind {ind}")
       print(f"RANK 7 ind[0] {ind[0]}")
+      print(f"RANK 7 ind last {ind[-1]}")
       print(f"RANK 7 ind.size {ind.size}")
       print(f"RANK 7 startindex {start_index}")
-      print(f"RANK 7 Endindex {end_index}") """
+      print(f"RANK 7 Endindex {end_index}")
       iter_num_for_gpu -= seq_len
       iter_num -= seq_len
     
     if rank == world_size - 2:
-      """ print(f"RANK 6 ind {ind}")
+      print(f"RANK 6 ind {ind}")
       print(f"RANK 6 ind[0] {ind[0]}")
+      print(f"RANK 6 ind last {ind[-1]}")
       print(f"RANK 6 ind.size {ind.size}")
       print(f"RANK 6 startindex {start_index}")
-      print(f"RANK 6 Endindex {end_index}") """
+      print(f"RANK 6 Endindex {end_index}")
     
 
     for i in range(start_index, end_index):
