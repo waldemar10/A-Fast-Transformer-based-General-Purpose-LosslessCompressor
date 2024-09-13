@@ -460,8 +460,8 @@ def main(rank, world_size):
   FLAGS(sys.argv)
   init_distributed_mode(rank, world_size)
   print(f"Prozess {rank} verwendet GPU {torch.cuda.current_device()}")
-  with open("analysis.txt", 'w', encoding='utf-8') as f:
-        f.write("Analysis of Compression and Decompression\n")
+  """ with open("analysis.txt", 'w', encoding='utf-8') as f:
+        f.write("Analysis of Compression and Decompression\n") """
 
   np.random.seed(FLAGS.random_seed)
   torch.manual_seed(FLAGS.random_seed)
@@ -499,27 +499,15 @@ def main(rank, world_size):
   
 
   total_length = len(train_data)
-  # total_length = 10.000.000.000
-  print(f"Total length: {total_length}")
   l = total_length // FLAGS.batch_size * FLAGS.batch_size
-  # l = 9536.74316406
-  print(f"Total length L: {l}")
   num_batches_per_gpu = l // world_size
-  # num_batches_per_gpu = 1192.092
-  print(f"rank: {rank} Number of batches per GPU: {num_batches_per_gpu}")
   extra_batches = total_length % world_size
-  """ print(f"Extra batches: {extra_batches}") """
-  
-  """ start_idx = rank * num_batches_per_gpu + min(rank, extra_batches)
-  end_idx = start_idx + num_batches_per_gpu + (1 if rank < extra_batches else 0) """
   start_idx = rank * num_batches_per_gpu
   end_idx = start_idx + num_batches_per_gpu  #fix out of bounds error
 
-  print(f"Rank {rank} processing data from index {start_idx} to {end_idx}")
-
   series_partition = series[start_idx:end_idx]
   
-  dist.barrier()
+  """ dist.barrier()
   if rank == world_size - 1:
       if total_length % FLAGS.batch_size == 0:
         encode(rank,world_size,FLAGS.seq_len, temp_dir, compressed_file, FLAGS, series_partition, train_data[start_idx:end_idx], None)
@@ -604,7 +592,7 @@ def main(rank, world_size):
       print(f"Total combined compressed file size: {combined_file_size / (1024 * 1024)} MB")
       with open("analysis.txt", 'a', encoding='utf-8') as f:
         f.write(f"Compressed File Size: {combined_file_size / (1024 * 1024):.2f} MB\n")
-        f.write("\n")
+        f.write("\n") """
 
   dist.barrier()
 
@@ -615,7 +603,7 @@ def main(rank, world_size):
   """ shutil.rmtree(temp_dir)   """ 
           
   #Remove all temp files
-  """ shutil.rmtree(main_temp_dir)
+  shutil.rmtree(main_temp_dir)
 
   #Now need to create the same dir again
   #Decode
@@ -637,7 +625,7 @@ def main(rank, world_size):
   f = open(compressed_file+'.combined','rb')
   len_series = len(series) 
   start_index = rank * (FLAGS.batch_size // torch.distributed.get_world_size())
-  end_index = ((rank + 1) * (FLAGS.batch_size // torch.distributed.get_world_size()))-1
+  end_index = ((rank + 1) * (FLAGS.batch_size // torch.distributed.get_world_size()))
   for i in range(start_index, end_index):
     f_out = open(temp_dir+'/'+compressed_file+'.'+str(i),'wb')
     byte_str_len = var_int_decode(f)
@@ -654,12 +642,16 @@ def main(rank, world_size):
   
   len_series = len(series)
   if (len_series-FLAGS.seq_len) % FLAGS.batch_size == 0:
-    decode(rank,temp_dir, compressed_file, FLAGS, len_series, 0)
+    print("Decompression: Last part is a full batch.")
+    """ decode(rank,temp_dir, compressed_file, FLAGS, len_series, 0) """
   else:
-    last_length = (len_series - FLAGS.seq_len) % FLAGS.batch_size + FLAGS.seq_len
-    decode(rank,temp_dir, compressed_file, FLAGS, len_series, last_length)
+    print("Decompression: Last part is not a full batch.")
+    """ last_length = (len_series - FLAGS.seq_len) % FLAGS.batch_size + FLAGS.seq_len
+    decode(rank,temp_dir, compressed_file, FLAGS, len_series, last_length) """
+
   dist.barrier()
-  if rank == 0:
+
+  """ if rank == 0:
     combine_decompressed_files(main_temp_dir, world_size, FLAGS.prefix + '.out') """
 
   dist.destroy_process_group()
