@@ -277,6 +277,9 @@ def encode(rank,world_size,seq_len, temp_dir, compressed_file, FLAGS, series, tr
     print(f"Number of GPUs available: {torch.cuda.device_count()}")
     print(f"Current GPU: {torch.cuda.current_device()} - {torch.cuda.get_device_name(torch.cuda.current_device())}")
 
+    if rank == 0:
+      start_time = time.time()
+
     start_index = rank * (FLAGS.batch_size // torch.distributed.get_world_size())
     end_index = (rank + 1) * (FLAGS.batch_size // world_size)
     end_index = min(end_index, len(train_data)) 
@@ -285,11 +288,7 @@ def encode(rank,world_size,seq_len, temp_dir, compressed_file, FLAGS, series, tr
        end_index = min((rank + 1) * (FLAGS.batch_size // world_size), len(train_data))
        """ end_index = min((rank + 1) * (FLAGS.batch_size // world_size), len(train_data)) - seq_len """
     
-    cpu_usages, memory_usages, gpu_usages = [], [], []
-    stop_event = threading.Event()
-    monitor_thread = threading.Thread(target=monitor_resources, args=(cpu_usages, memory_usages, gpu_usages, stop_event))
-    monitor_thread.start()
-    start_time = time.time()
+    
 
     
     if rank == world_size - 1:
@@ -382,7 +381,7 @@ def encode(rank,world_size,seq_len, temp_dir, compressed_file, FLAGS, series, tr
                 print(f"[ERROR] Encoder write failed for index {i}: {e}")
         
         ind += 1
-        ind = np.clip(ind, 0, len(train_data) - 1)
+        ind = np.clip(ind, 0, len(train_data) - 1) # Fix out of bounds error
         # Periodic output
         if train_index % FLAGS.print_step == 0:
             size = 0
@@ -421,26 +420,18 @@ def encode(rank,world_size,seq_len, temp_dir, compressed_file, FLAGS, series, tr
     dist.barrier()
     print("Encode finished")
 
-    # Compute the size of the compressed file
-    """ compressed_size = sum(os.path.getsize(os.path.join(temp_dir, compressed_file + '.' + str(i))) for i in range(start_index, end_index))
-    if last_train_data is not None:
-        compressed_size += os.path.getsize(os.path.join(temp_dir, compressed_file + '.last'))
+    # Save data for analysis
     if rank == 0:
-      print(f"Total compressed file size: {compressed_size / (1024 * 1024)} MB") """
+      input_file_path = FLAGS.input_dir
+      original_size = os.path.getsize(input_file_path)
+      end_time = time.time()
+      
+      with open("analysis.txt", 'a', encoding='utf-8') as f:
+          elapsed_time = end_time - start_time
+          f.write(f"Orginal File Size: {original_size / (1024 * 1024):.2f} MB\n")
+          f.write(f"Compression Time: {elapsed_time:.2f} seconds\n")
+          f.write("\n")
 
-    # Log resource usage
-    """  stop_event.set()
-    monitor_thread.join()
-
-    avg_cpu_usage = sum(cpu_usages) / len(cpu_usages) if cpu_usages else 0
-    avg_memory_usage = sum(memory_usages) / len(memory_usages) if memory_usages else 0
-    avg_gpu_usage = sum(gpu_usages) / len(gpu_usages) if gpu_usages else 0
-
-    input_file_path = FLAGS.input_dir
-    original_size = os.path.getsize(input_file_path)
-    # Log resource usage
-    log_resource_usage(start_time, "Encode", "analysis.txt", original_size=original_size, compressed_size=compressed_size,cpu_usage=avg_cpu_usage,
-                        memory_usage=avg_memory_usage, gpu_usage=avg_gpu_usage) """
     return
     
 def var_int_encode(byte_str_len, f):
@@ -556,8 +547,7 @@ def main(rank, world_size):
       f = open(compressed_file + '.combined', 'wb')
       
       for i in range(FLAGS.batch_size):
-          # Debug: Check the current index and its effect on iter_counter and rank_counter
-          print(f"[DEBUG] Processing file index {i}. Current iterr: {iterr}, rank_counter: {rank_counter}")
+          
           
           # Update rank_counter and iterr
           if i > iterr:
@@ -567,15 +557,12 @@ def main(rank, world_size):
           
           # Update temp_dir
           temp_dir = os.path.join(main_temp_dir, f"rank_{rank_counter}_temp")
-          print(f"[DEBUG] temp_dir updated to: {temp_dir}")
-
+        
           # Load compressed file
           try:
-              print(f"[DEBUG] Attempting to read file {temp_dir}/{compressed_file}.{i}")
               f_in = open(temp_dir + '/' + compressed_file + '.' + str(i), 'rb')
               byte_str = f_in.read()
               byte_str_len = len(byte_str)
-              print(f"[DEBUG] Read {byte_str_len} bytes from {temp_dir}/{compressed_file}.{i}")
           except FileNotFoundError as e:
               print(f"[ERROR] File not found: {e}")
               continue  # Skip to the next file
@@ -585,7 +572,6 @@ def main(rank, world_size):
 
           # Encode and write to the combined file
           try:
-              print(f"[DEBUG] Encoding byte string of length {byte_str_len} and writing to combined file.")
               var_int_encode(byte_str_len, f)
               f.write(byte_str)
               f_in.close()
@@ -616,6 +602,9 @@ def main(rank, world_size):
       # Debug: Check the combined file size
       combined_file_size = os.path.getsize(compressed_file + '.combined')
       print(f"Total combined compressed file size: {combined_file_size / (1024 * 1024)} MB")
+      with open("analysis.txt", 'a', encoding='utf-8') as f:
+        f.write(f"Compressed File Size: {combined_file_size / (1024 * 1024):.2f} MB\n")
+        f.write("\n")
 
   dist.barrier()
 
