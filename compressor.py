@@ -278,7 +278,7 @@ def encode(rank,world_size,seq_len, temp_dir, compressed_file, FLAGS, series, tr
     print(f"Current GPU: {torch.cuda.current_device()} - {torch.cuda.get_device_name(torch.cuda.current_device())}")
 
     start_index = rank * (FLAGS.batch_size // torch.distributed.get_world_size())
-    end_index = min((rank + 1) * (FLAGS.batch_size // world_size), len(train_data))
+    end_index = (rank + 1) * (FLAGS.batch_size // world_size)
 
     if rank == world_size - 1:
        end_index = min((rank + 1) * (FLAGS.batch_size // world_size), len(train_data))
@@ -317,25 +317,7 @@ def encode(rank,world_size,seq_len, temp_dir, compressed_file, FLAGS, series, tr
        iter_num_for_gpu -= 1
     if rank == world_size - 1:
       """ print(f"rank {rank} indsize: {ind.size} iter_num: {iter_num} np.array(range(start_index, end_index)) {np.array(range(start_index, end_index))}") """
-    if rank == world_size - 1:
-      print(f"RANK 7 ind {ind}")
-      print(f"RANK 7 ind[0] {ind[0]}")
-      print(f"RANK 7 ind last {ind[-1]}")
-      print(f"RANK 7 ind.size {ind.size}")
-      print(f"RANK 7 startindex {start_index}")
-      print(f"RANK 7 Endindex {end_index}")
-      iter_num_for_gpu -= seq_len
-      iter_num -= seq_len
     
-    if rank == world_size - 2:
-      print(f"RANK 6 ind {ind}")
-      print(f"RANK 6 ind[0] {ind[0]}")
-      print(f"RANK 6 ind last {ind[-1]}")
-      print(f"RANK 6 ind.size {ind.size}")
-      print(f"RANK 6 startindex {start_index}")
-      print(f"RANK 6 Endindex {end_index}")
-    
-
     for i in range(start_index, end_index):
         for j in range(seq_len):
             enc[i - start_index].write(cumul, series[ind[i - start_index] + j])
@@ -358,28 +340,23 @@ def encode(rank,world_size,seq_len, temp_dir, compressed_file, FLAGS, series, tr
     
     print(iter_num_for_gpu)
     dist.barrier()
-    for train_index in range(iter_num_for_gpu):
-        """ print(f"[DEBUG] Training iteration {train_index} on rank {rank}") """
-        
+    for train_index in range(iter_num_for_gpu):     
         model.train()
         try:
             train_batch = train_data[ind, :]
             y = train_batch[:, -1]
-            """ print(f"[DEBUG] Retrieved train batch of shape {train_batch.shape}") """
         except Exception as e:
             print(f"[ERROR] Failed to retrieve train batch at iteration {train_index}: {e}")
         
         try:
             train_batch = torch.from_numpy(train_batch).cuda().long()
             train_loss, logits = model.module.full_loss(train_batch, with_grad=True)
-            """ print(f"[DEBUG] Model forward pass completed at iteration {train_index}") """
         except Exception as e:
             print(f"[ERROR] Model forward pass failed at iteration {train_index}: {e}")
         
         try:
             optimizer.step()
             optimizer.zero_grad(set_to_none=True)
-            """ print(f"[DEBUG] Optimizer step and gradient zeroing completed at iteration {train_index}") """
         except Exception as e:
             print(f"[ERROR] Optimizer step failed at iteration {train_index}: {e}")
 
@@ -529,14 +506,14 @@ def main(rank, world_size):
   print(f"Total length L: {l}")
   num_batches_per_gpu = l // world_size
   # num_batches_per_gpu = 1192.092
-  """ print(f"Number of batches per GPU: {num_batches_per_gpu}") """
+  print(f"rank: {rank} Number of batches per GPU: {num_batches_per_gpu}")
   extra_batches = total_length % world_size
   """ print(f"Extra batches: {extra_batches}") """
   
   """ start_idx = rank * num_batches_per_gpu + min(rank, extra_batches)
   end_idx = start_idx + num_batches_per_gpu + (1 if rank < extra_batches else 0) """
   start_idx = rank * num_batches_per_gpu
-  end_idx = min(start_idx + num_batches_per_gpu - 1, total_length - 1) #fix out of bounds error
+  end_idx = start_idx + num_batches_per_gpu  #fix out of bounds error
 
   print(f"Rank {rank} processing data from index {start_idx} to {end_idx}")
 
@@ -549,7 +526,7 @@ def main(rank, world_size):
       else:
         print(f"REST Rank {rank} processing last data from index {end_idx} to {total_length - 1} train_data[start_idx:l]: {train_data[start_idx:l]}")
         series_partition = series[start_idx:end_idx + FLAGS.seq_len]
-        train_data_partition = train_data[start_idx:l]
+        train_data_partition = train_data[start_idx:end_idx]
         encode(rank,world_size,FLAGS.seq_len, temp_dir, compressed_file, FLAGS, series_partition, train_data_partition, series[end_idx:])
   else:
       encode(rank,world_size,FLAGS.seq_len, temp_dir, compressed_file, FLAGS, series_partition, train_data[start_idx:end_idx], None)
@@ -770,3 +747,22 @@ if __name__ == '__main__':
     print(f"RANK 7 series_partition: {series_partition}")
     print(f"RANK 7 series_partition ohne FLAGS.seq_len: {series[start_idx:end_idx]}")
     series_partition = series[start_idx:end_idx] """
+
+
+""" if rank == world_size - 1:
+      print(f"RANK 7 ind {ind}")
+      print(f"RANK 7 ind[0] {ind[0]}")
+      print(f"RANK 7 ind last {ind[-1]}")
+      print(f"RANK 7 ind.size {ind.size}")
+      print(f"RANK 7 startindex {start_index}")
+      print(f"RANK 7 Endindex {end_index}")
+      iter_num_for_gpu -= seq_len
+      iter_num -= seq_len
+    
+    if rank == world_size - 2:
+      print(f"RANK 6 ind {ind}")
+      print(f"RANK 6 ind[0] {ind[0]}")
+      print(f"RANK 6 ind last {ind[-1]}")
+      print(f"RANK 6 ind.size {ind.size}")
+      print(f"RANK 6 startindex {start_index}")
+      print(f"RANK 6 Endindex {end_index}") """
