@@ -150,7 +150,9 @@ def decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last):
   ind = np.array(range(start_index, end_index)) * iter_num
 
   series_2d = np.zeros((bs,iter_num), dtype = np.uint8).astype('int')
-  print(series_2d)
+
+  """ print(series_2d) """
+
   """ temp_dir_rank = temp_dir + f"/rank_{rank}_temp" """
   f = [open(temp_dir + "/" + compressed_file + '.' + str(i), 'rb') for i in range(start_index,end_index)]
   bitin = [arithmeticcoding_fast.BitInputStream(f[i-start_index]) for i in range(start_index,end_index)]
@@ -179,7 +181,7 @@ def decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last):
                                         FLAGS.hidden_dim,FLAGS.n_layers, 
                                         FLAGS.ffn_dim,FLAGS.n_heads, FLAGS.feature_type, 
                                         FLAGS.compute_type).cuda()
-  print(model)
+  """ print(model) """
 
   try:
       model = DDP(model, device_ids=[rank])
@@ -188,7 +190,6 @@ def decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last):
   
   optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate, weight_decay=FLAGS.weight_decay, betas=(.9, .999))
   
-  training_start = time.time()
   print("Decode")
   print(iter_num_for_gpu)
 
@@ -256,7 +257,7 @@ def decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last):
         continue
     
     if train_index % FLAGS.print_step == 0:
-      print(train_index, ":", train_loss.item()/np.log(2))
+      print(f"Rank: {rank} {train_index} : {train_loss.item()/np.log(2)}")
   
     
   """ out = open('tttdecompressed_out', 'w', encoding='utf-8')
@@ -674,15 +675,16 @@ def main(rank, world_size):
     f_out.write(byte_str)
     f_out.close()
   
-  f_out = open(temp_dir+'/'+compressed_file+'.last','wb')
-  byte_str_len = var_int_decode(f)
-  byte_str = f.read(byte_str_len)
-  f_out.write(byte_str)
-  f_out.close()
-  f.close()
+  if rank == world_size - 1:
+    f_out = open(temp_dir+'/'+compressed_file+'.last','wb')
+    byte_str_len = var_int_decode(f)
+    byte_str = f.read(byte_str_len)
+    f_out.write(byte_str)
+    f_out.close()
+    f.close()
   
-  len_series = len(series)
-  """ len_series = len(series_partition) """
+  """ len_series = len(series) """
+  len_series = len(series_partition)
   if (len_series-FLAGS.seq_len) % FLAGS.batch_size == 0:
     print("Decompression: Last part is a full batch.")
     decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, 0)
