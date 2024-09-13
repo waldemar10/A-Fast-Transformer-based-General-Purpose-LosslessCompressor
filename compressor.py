@@ -603,7 +603,8 @@ def main(rank, world_size):
   """ shutil.rmtree(temp_dir)   """ 
           
   #Remove all temp files
-  shutil.rmtree(main_temp_dir)
+  if rank == 0:  
+    shutil.rmtree(main_temp_dir)
 
   #Now need to create the same dir again
   #Decode
