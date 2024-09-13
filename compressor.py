@@ -327,17 +327,13 @@ def encode(rank,world_size,temp_dir, compressed_file, FLAGS, series, train_data,
         for j in range(FLAGS.seq_len):
             enc[i - start_index].write(cumul, series[ind[i - start_index] + j])
 
-    
     cumul_batch = np.zeros((end_index - start_index, FLAGS.vocab_size + 1), dtype=np.uint64)
 
-    """ local_rank = int(os.environ["LOCAL_RANK"]) """
     torch.cuda.set_device(rank)
-    print("before model")
     torch.distributed.barrier()
     model = compress_model.SLiMPerformer(FLAGS.vocab_size, FLAGS.vocab_dim, FLAGS.hidden_dim,
                                              FLAGS.n_layers, FLAGS.ffn_dim,
                                              FLAGS.n_heads, FLAGS.feature_type, FLAGS.compute_type).cuda()
-    """ print(model) """
     
     try:
       model = DDP(model, device_ids=[rank])
@@ -345,14 +341,8 @@ def encode(rank,world_size,temp_dir, compressed_file, FLAGS, series, train_data,
     except Exception as e:
       print(f"DDP Initialization Error on rank {rank}: {e}")
     
-
     optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate, weight_decay=FLAGS.weight_decay, betas=(.9, .999))
     
-    """ print(rank)
-    print(f"Current GPU: {torch.cuda.current_device()} - {torch.cuda.get_device_name(torch.cuda.current_device())}") """
-    
-    """ torch.distributed.barrier() """
-
     print(iter_num_for_gpu)
     dist.barrier()
     for train_index in range(iter_num_for_gpu):
@@ -360,11 +350,7 @@ def encode(rank,world_size,temp_dir, compressed_file, FLAGS, series, train_data,
         
         model.train()
         try:
-            """ train_batch = train_data[ind[0] : ind[bs // torch.distributed.get_world_size()]] """
             train_batch = train_data[ind, :]
-            if rank == world_size - 1:
-                print(f"[DEBUG] RANK7 Retrieved train batch of shape {train_data.size}")
-            
             y = train_batch[:, -1]
             """ print(f"[DEBUG] Retrieved train batch of shape {train_batch.shape}") """
         except Exception as e:
@@ -403,7 +389,7 @@ def encode(rank,world_size,temp_dir, compressed_file, FLAGS, series, train_data,
             size = 0
             for cf in os.listdir(temp_dir):
                 size += os.path.getsize(os.path.join(temp_dir, cf))
-            """ print(f" Iteration on Rank: {rank} : {train_index}: Train loss {train_loss.item() / np.log(2)}, size: {size / (1024 * 1024)} MB") """
+            print(f" Iteration on Rank: {rank} : {train_index}: Train loss {train_loss.item() / np.log(2)}, size: {size / (1024 * 1024)} MB")
     
     print(f"[DEBUG] Training completed on rank {rank}")
     dist.barrier()
