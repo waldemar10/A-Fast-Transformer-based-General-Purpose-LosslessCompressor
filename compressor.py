@@ -611,48 +611,85 @@ def main(rank, world_size):
  
   
   dist.barrier()
-  
-  iterr = (FLAGS.batch_size // world_size)-1
+
+  iterr = (FLAGS.batch_size // world_size) - 1
   rank_counter = 0
+
+
   if rank == 0:
-  #Combined compressed results
-    print("Start combining")
-    f = open(compressed_file+'.combined','wb')
-    for i in range(FLAGS.batch_size):
+      print(f"[DEBUG] Rank 0: Start combining files.")
+      print(f"[DEBUG] Initial iterr: {iterr}, Initial rank_counter: {rank_counter}")
       
-      #Update rank_counter and iterr
-      if i>iterr:
-        iterr += FLAGS.batch_size // world_size
-        rank_counter += 1
+      # Combined compressed results
+      print("[DEBUG] Opening combined file for writing.")
+      f = open(compressed_file + '.combined', 'wb')
       
-      #Update temp_dir
-      temp_dir = os.path.join(main_temp_dir, f"rank_{rank_counter}_temp")
-      #Load compressed file
-      f_in = open(temp_dir+'/'+compressed_file+'.'+str(i),'rb')
-      byte_str = f_in.read()
-      byte_str_len = len(byte_str)
+      for i in range(FLAGS.batch_size):
+          # Debug: Check the current index and its effect on iter_counter and rank_counter
+          print(f"[DEBUG] Processing file index {i}. Current iterr: {iterr}, rank_counter: {rank_counter}")
+          
+          # Update rank_counter and iterr
+          if i > iterr:
+              iterr += FLAGS.batch_size // world_size
+              rank_counter += 1
+              print(f"[DEBUG] Updated iterr: {iterr}, Updated rank_counter: {rank_counter}")
+          
+          # Update temp_dir
+          temp_dir = os.path.join(main_temp_dir, f"rank_{rank_counter}_temp")
+          print(f"[DEBUG] temp_dir updated to: {temp_dir}")
 
-      #Encode and write to the combined file
-      var_int_encode(byte_str_len, f)
-      f.write(byte_str)
-      f_in.close()
-    
-    if total_length % FLAGS.batch_size != 0:
-      temp_dir = os.path.join(main_temp_dir, f"rank_{rank_counter}_temp")
-      f_in = open(temp_dir+'/'+compressed_file+'.last','rb')
-      byte_str = f_in.read()
-      byte_str_len = len(byte_str)
-      var_int_encode(byte_str_len, f)
-      f.write(byte_str)
-      f_in.close()
+          # Load compressed file
+          try:
+              print(f"[DEBUG] Attempting to read file {temp_dir}/{compressed_file}.{i}")
+              f_in = open(temp_dir + '/' + compressed_file + '.' + str(i), 'rb')
+              byte_str = f_in.read()
+              byte_str_len = len(byte_str)
+              print(f"[DEBUG] Read {byte_str_len} bytes from {temp_dir}/{compressed_file}.{i}")
+          except FileNotFoundError as e:
+              print(f"[ERROR] File not found: {e}")
+              continue  # Skip to the next file
+          except Exception as e:
+              print(f"[ERROR] Failed to read file {temp_dir}/{compressed_file}.{i}: {e}")
+              continue
 
-    f.close()
-  
-    combined_file_size = os.path.getsize(compressed_file + '.combined')
-  
-    print(f"Total combined compressed file size: {combined_file_size / (1024 * 1024)} MB")
+          # Encode and write to the combined file
+          try:
+              print(f"[DEBUG] Encoding byte string of length {byte_str_len} and writing to combined file.")
+              var_int_encode(byte_str_len, f)
+              f.write(byte_str)
+              f_in.close()
+          except Exception as e:
+              print(f"[ERROR] Failed to write to combined file: {e}")
+      
+      # Check 
+      if total_length % FLAGS.batch_size != 0:
+          temp_dir = os.path.join(main_temp_dir, f"rank_{rank_counter}_temp")
+          print(f"[DEBUG] Processing last file in {temp_dir}")
+          
+          try:
+              f_in = open(temp_dir + '/' + compressed_file + '.last', 'rb')
+              byte_str = f_in.read()
+              byte_str_len = len(byte_str)
+              print(f"[DEBUG] Read {byte_str_len} bytes from {temp_dir}/{compressed_file}.last")
+              var_int_encode(byte_str_len, f)
+              f.write(byte_str)
+              f_in.close()
+          except FileNotFoundError as e:
+              print(f"[ERROR] Last file not found: {e}")
+          except Exception as e:
+              print(f"[ERROR] Failed to read/write last file: {e}")
+      
+      f.close()
+      print(f"[DEBUG] Closed combined file {compressed_file}.combined")
+      
+      # Debug: Check the combined file size
+      combined_file_size = os.path.getsize(compressed_file + '.combined')
+      print(f"Total combined compressed file size: {combined_file_size / (1024 * 1024)} MB")
 
   dist.barrier()
+
+  
+  
   #Remove temp file
   print("Start decoding")
   """ shutil.rmtree(temp_dir)   """ 
