@@ -619,7 +619,7 @@ def main(rank, world_size):
         os.mkdir(temp_dir)
         print(f"Decompression: Rank {rank} erstellt Unterordner {temp_dir}")
 
-  dist.barrier()
+  """ dist.barrier() """
   #Split compressed file
   
   f = open(compressed_file+'.combined','rb')
