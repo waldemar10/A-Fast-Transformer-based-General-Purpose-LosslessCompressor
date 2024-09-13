@@ -312,6 +312,14 @@ def encode(rank,world_size,seq_len, temp_dir, compressed_file, FLAGS, series, tr
     iter_num_for_gpu = len(train_data) // (FLAGS.batch_size // world_size)
     print(f"Rank {rank} iter_num_for_gpu: {iter_num_for_gpu} + len(train_data): {len(train_data)}")
     ind = np.array(range(start_index, end_index)) * iter_num
+
+    if np.any(ind >= len(train_data)):
+      print(f"[ERROR] RANK: {rank} Out of bounds index found in ind: {ind[ind >= len(train_data)]}")
+
+    ind = np.clip(np.array(range(start_index, end_index)) * iter_num, 0, len(train_data) - 1)
+
+    ind = ind[ind < len(train_data)]
+    
     if rank == world_size - 1:
        ind = np.array(range(start_index, end_index)) * iter_num
        iter_num_for_gpu -= 1
