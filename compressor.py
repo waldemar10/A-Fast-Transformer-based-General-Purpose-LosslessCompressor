@@ -283,8 +283,9 @@ def encode(rank,world_size,temp_dir, compressed_file, FLAGS, series, train_data,
     start_index = rank * (FLAGS.batch_size // torch.distributed.get_world_size())
     end_index = min((rank + 1) * (FLAGS.batch_size // world_size), len(train_data)) - 1
 
-    """ if rank == world_size - 1:
-       end_index = min((rank + 1) * (FLAGS.batch_size // world_size), len(train_data)) - FLAGS.seq_len """
+    if rank == world_size - 1:
+       end_index = min((rank + 1) * (FLAGS.batch_size // world_size), len(train_data))
+       """ end_index = min((rank + 1) * (FLAGS.batch_size // world_size), len(train_data)) - FLAGS.seq_len """
     
     cpu_usages, memory_usages, gpu_usages = [], [], []
     stop_event = threading.Event()
