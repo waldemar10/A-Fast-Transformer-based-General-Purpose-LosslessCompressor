@@ -125,7 +125,7 @@ def log_resource_usage(start_time, phase, file_path, original_size=None, compres
             f.write(f"{phase} GPU Usage: {gpu_usage:.2f} %\n")
         f.write("\n")
 
-def decode(rank,temp_dir, compressed_file, FLAGS, len_series, last):
+def decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last):
 
   """ start_index = rank * (FLAGS.batch_size // torch.distributed.get_world_size())
   end_index = ((rank + 1) * (FLAGS.batch_size // torch.distributed.get_world_size())) """
@@ -685,11 +685,11 @@ def main(rank, world_size):
   """ len_series = len(series_partition) """
   if (len_series-FLAGS.seq_len) % FLAGS.batch_size == 0:
     print("Decompression: Last part is a full batch.")
-    decode(rank,temp_dir, compressed_file, FLAGS, len_series, 0)
+    decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, 0)
   else:
     print("Decompression: Last part is not a full batch.")
     last_length = (len_series - FLAGS.seq_len) % FLAGS.batch_size + FLAGS.seq_len
-    decode(rank,temp_dir, compressed_file, FLAGS, len_series, last_length)
+    decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last_length)
 
   dist.barrier()
 
