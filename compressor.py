@@ -547,8 +547,10 @@ def main(rank, world_size):
       if total_length % FLAGS.batch_size == 0:
         encode(rank,world_size,FLAGS.seq_len, temp_dir, compressed_file, FLAGS, series_partition, train_data[start_idx:end_idx], None)
       else:
+        print(f"REST Rank {rank} processing last data from index {end_idx} to {total_length - 1}")
         series_partition = series[start_idx:end_idx + FLAGS.seq_len]
-        encode(rank,world_size,FLAGS.seq_len, temp_dir, compressed_file, FLAGS, series_partition, train_data[start_idx:end_idx], series[end_idx:])
+        train_data_partition = train_data[start_idx:l]
+        encode(rank,world_size,FLAGS.seq_len, temp_dir, compressed_file, FLAGS, series_partition, train_data_partition, series[end_idx:])
   else:
       encode(rank,world_size,FLAGS.seq_len, temp_dir, compressed_file, FLAGS, series_partition, train_data[start_idx:end_idx], None)
  
