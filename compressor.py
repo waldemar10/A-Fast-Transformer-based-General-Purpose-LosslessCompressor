@@ -272,7 +272,7 @@ def decode(rank,temp_dir, compressed_file, FLAGS, len_series, last):
   return
  
 
-def encode(rank,world_size,temp_dir, compressed_file, FLAGS, series, train_data, last_train_data):
+def encode(rank,world_size,seq_len, temp_dir, compressed_file, FLAGS, series, train_data, last_train_data):
     
     print(f"Number of GPUs available: {torch.cuda.device_count()}")
     print(f"Current GPU: {torch.cuda.current_device()} - {torch.cuda.get_device_name(torch.cuda.current_device())}")
@@ -281,11 +281,11 @@ def encode(rank,world_size,temp_dir, compressed_file, FLAGS, series, train_data,
 
     # Initialize file handles and encoders for the current GPU's portion of the batch
     start_index = rank * (FLAGS.batch_size // torch.distributed.get_world_size())
-    end_index = min((rank + 1) * (FLAGS.batch_size // world_size), len(train_data)) - 1
+    end_index = min((rank + 1) * (FLAGS.batch_size // world_size), len(train_data))
 
     if rank == world_size - 1:
        end_index = min((rank + 1) * (FLAGS.batch_size // world_size), len(train_data))
-       """ end_index = min((rank + 1) * (FLAGS.batch_size // world_size), len(train_data)) - FLAGS.seq_len """
+       """ end_index = min((rank + 1) * (FLAGS.batch_size // world_size), len(train_data)) - seq_len """
     
     cpu_usages, memory_usages, gpu_usages = [], [], []
     stop_event = threading.Event()
@@ -309,8 +309,9 @@ def encode(rank,world_size,temp_dir, compressed_file, FLAGS, series, train_data,
     cumul = np.zeros(FLAGS.vocab_size+1, dtype=np.uint64)
     cumul[1:] = np.cumsum(prob*10000000 + 1)
     
-    # New iteration depending on the number of GPUs
+    
     iter_num = len(train_data) // FLAGS.batch_size
+    # New iteration depending on the number of GPUs
     iter_num_for_gpu = len(train_data) // (FLAGS.batch_size // world_size)
     
     ind = np.array(range(start_index, end_index)) * iter_num
@@ -322,8 +323,8 @@ def encode(rank,world_size,temp_dir, compressed_file, FLAGS, series, train_data,
       print(f"RANK 7 ind.size {ind.size}")
       print(f"RANK 7 startindex {start_index}")
       print(f"RANK 7 Endindex {end_index}") """
-      iter_num_for_gpu -= FLAGS.seq_len
-      iter_num -= FLAGS.seq_len
+      iter_num_for_gpu -= seq_len
+      iter_num -= seq_len
     
     if rank == world_size - 2:
       """ print(f"RANK 6 ind {ind}")
@@ -334,7 +335,7 @@ def encode(rank,world_size,temp_dir, compressed_file, FLAGS, series, train_data,
     
 
     for i in range(start_index, end_index):
-        for j in range(FLAGS.seq_len):
+        for j in range(seq_len):
             enc[i - start_index].write(cumul, series[ind[i - start_index] + j])
 
     cumul_batch = np.zeros((end_index - start_index, FLAGS.vocab_size + 1), dtype=np.uint64)
@@ -611,11 +612,11 @@ def main(rank, world_size):
   dist.barrier()
   if rank == world_size - 1:
       if total_length % FLAGS.batch_size == 0:
-        encode(rank,world_size, temp_dir, compressed_file, FLAGS, series_partition, train_data[start_idx:end_idx], None)
+        encode(rank,world_size,FLAGS.seq_len, temp_dir, compressed_file, FLAGS, series_partition, train_data[start_idx:end_idx], None)
       else:
-        encode(rank,world_size, temp_dir, compressed_file, FLAGS, series_partition, train_data[start_idx:end_idx], series[end_idx:])
+        encode(rank,world_size,FLAGS.seq_len, temp_dir, compressed_file, FLAGS, series_partition, train_data[start_idx:end_idx], series[end_idx:])
   else:
-      encode(rank,world_size, temp_dir, compressed_file, FLAGS, series_partition, train_data[start_idx:end_idx], None)
+      encode(rank,world_size,FLAGS.seq_len, temp_dir, compressed_file, FLAGS, series_partition, train_data[start_idx:end_idx], None)
  
   
   dist.barrier()
