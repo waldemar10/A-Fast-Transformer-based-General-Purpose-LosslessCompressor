@@ -538,7 +538,7 @@ def main(rank, world_size):
   start_idx = rank * num_batches_per_gpu
   end_idx = min(start_idx + num_batches_per_gpu - 1, total_length - 1) #fix out of bounds error
 
-  """ print(f"Rank {rank} processing data from index {start_idx} to {end_idx}") """
+  print(f"Rank {rank} processing data from index {start_idx} to {end_idx}")
 
   series_partition = series[start_idx:end_idx]
   
