@@ -594,6 +594,7 @@ def main(rank, world_size):
     print(f"RANK 7 End Index: {end_idx}")
     print(f"RANK 7 series_partition: {series_partition}")
     print(f"RANK 7 series_partition ohne FLAGS.seq_len: {series[start_idx:end_idx]}")
+    series_partition = series[start_idx:end_idx]
   
 
   dist.barrier()
