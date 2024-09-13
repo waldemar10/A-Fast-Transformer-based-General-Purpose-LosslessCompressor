@@ -314,6 +314,7 @@ def encode(rank,world_size,seq_len, temp_dir, compressed_file, FLAGS, series, tr
     ind = np.array(range(start_index, end_index)) * iter_num
     if rank == world_size - 1:
        ind = np.array(range(start_index, end_index)) * iter_num
+       iter_num_for_gpu -= 1
     if rank == world_size - 1:
       """ print(f"rank {rank} indsize: {ind.size} iter_num: {iter_num} np.array(range(start_index, end_index)) {np.array(range(start_index, end_index))}") """
     if rank == world_size - 1:
