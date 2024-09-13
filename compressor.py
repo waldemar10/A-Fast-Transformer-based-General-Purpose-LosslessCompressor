@@ -276,25 +276,32 @@ def encode(rank,world_size,temp_dir, compressed_file, FLAGS, series, train_data,
     
     print(f"Number of GPUs available: {torch.cuda.device_count()}")
     print(f"Current GPU: {torch.cuda.current_device()} - {torch.cuda.get_device_name(torch.cuda.current_device())}")
-    bs = FLAGS.batch_size // torch.distributed.get_world_size()
+
+    """ bs = FLAGS.batch_size // torch.distributed.get_world_size() """
 
     # Initialize file handles and encoders for the current GPU's portion of the batch
     start_index = rank * (FLAGS.batch_size // torch.distributed.get_world_size())
     end_index = min((rank + 1) * (FLAGS.batch_size // world_size), len(train_data)) - 1
-    if rank == world_size - 1:
-       end_index = min((rank + 1) * (FLAGS.batch_size // world_size), len(train_data)) - FLAGS.seq_len
+
+    """ if rank == world_size - 1:
+       end_index = min((rank + 1) * (FLAGS.batch_size // world_size), len(train_data)) - FLAGS.seq_len """
+    
     cpu_usages, memory_usages, gpu_usages = [], [], []
     stop_event = threading.Event()
     monitor_thread = threading.Thread(target=monitor_resources, args=(cpu_usages, memory_usages, gpu_usages, stop_event))
     monitor_thread.start()
     start_time = time.time()
-    """ bs = FLAGS.batch_size """
+
+    
     if rank == world_size - 1:
       print(f"rank {rank} startindex: {start_index} end_index: {end_index} diff: {end_index - start_index}")
+    
     f = [open(os.path.join(temp_dir, compressed_file + '.' + str(i)), 'wb') for i in range(start_index, end_index)]
     bitout = [arithmeticcoding_fast.BitOutputStream(f[i - start_index]) for i in range(start_index, end_index)]
     enc = [arithmeticcoding_fast.ArithmeticEncoder(32, bitout[i - start_index]) for i in range(start_index, end_index)]
+
     print("Encoder initialized")
+
     torch.distributed.barrier()
     
     prob = np.ones(FLAGS.vocab_size)/FLAGS.vocab_size
