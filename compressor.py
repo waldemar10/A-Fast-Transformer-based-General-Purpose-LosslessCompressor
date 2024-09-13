@@ -279,6 +279,7 @@ def encode(rank,world_size,seq_len, temp_dir, compressed_file, FLAGS, series, tr
 
     start_index = rank * (FLAGS.batch_size // torch.distributed.get_world_size())
     end_index = (rank + 1) * (FLAGS.batch_size // world_size)
+    end_index = min(end_index, len(train_data)) 
 
     if rank == world_size - 1:
        end_index = min((rank + 1) * (FLAGS.batch_size // world_size), len(train_data))
@@ -292,7 +293,7 @@ def encode(rank,world_size,seq_len, temp_dir, compressed_file, FLAGS, series, tr
 
     
     if rank == world_size - 1:
-      """ print(f"rank {rank} startindex: {start_index} end_index: {end_index} diff: {end_index - start_index}") """
+      print(f"[DEBUG] Rank {rank}: start_index={start_index}, end_index={end_index}, len(train_data)={len(train_data)}")
     
     f = [open(os.path.join(temp_dir, compressed_file + '.' + str(i)), 'wb') for i in range(start_index, end_index)]
     bitout = [arithmeticcoding_fast.BitOutputStream(f[i - start_index]) for i in range(start_index, end_index)]
@@ -381,7 +382,7 @@ def encode(rank,world_size,seq_len, temp_dir, compressed_file, FLAGS, series, tr
                 print(f"[ERROR] Encoder write failed for index {i}: {e}")
         
         ind += 1
-        
+        ind = np.clip(ind, 0, len(train_data) - 1)
         # Periodic output
         if train_index % FLAGS.print_step == 0:
             size = 0
