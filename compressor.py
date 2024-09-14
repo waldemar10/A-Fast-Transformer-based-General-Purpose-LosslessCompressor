@@ -135,50 +135,31 @@ def decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last):
 
   start_index = rank * (FLAGS.batch_size // world_size)
   end_index = (rank + 1) * (FLAGS.batch_size // world_size)
-  """ end_index = min(end_index, len_series)  """
 
-  bs = FLAGS.batch_size // world_size
-
-  """ iter_num = (len_series - FLAGS.seq_len) // FLAGS.batch_size """
-  """ if rank == world_size - 1:
-    iter_num_for_gpu = (len_series - FLAGS.seq_len) // bs
-  else:
-    iter_num_for_gpu = (len_series) // bs """
+  bs = FLAGS.batch_size
+  iter_num = (len_series - FLAGS.seq_len) // FLAGS.batch_size
   
   iter_num_for_gpu = (len_series - FLAGS.seq_len) // bs
 
-  """ iter_num = iter_num // world_size """
+  series_2d = np.zeros((bs,iter_num), dtype = np.uint8).astype('int')
 
-  """ ind = np.array(range(bs))*iter_num """
-  """ ind = np.array(range(start_index, end_index)) * iter_num """
-
-  """ series_2d = np.zeros((bs,iter_num), dtype = np.uint8).astype('int') """
-  series_2d = np.zeros((bs,iter_num_for_gpu), dtype = np.uint8).astype('int')
-  
-  """ print(series_2d) """
   print(f"start_index: {start_index}, end_index: {end_index}, iter_num_for_gpu: {iter_num_for_gpu}")
-  """ temp_dir_rank = temp_dir + f"/rank_{rank}_temp" """
-  f = [open(temp_dir + "/" + compressed_file + '.' + str(i), 'rb') for i in range(start_index,end_index)]
-  bitin = [arithmeticcoding_fast.BitInputStream(f[i-start_index]) for i in range(start_index,end_index)]
-  dec = [arithmeticcoding_fast.ArithmeticDecoder(32, bitin[i-start_index]) for i in range(start_index,end_index)]
 
-  """ f = [open(temp_dir+"/"+compressed_file+'.'+str(i),'rb') for i in range(bs)]
+  f = [open(temp_dir+"/"+compressed_file+'.'+str(i),'rb') for i in range(bs)]
   bitin = [arithmeticcoding_fast.BitInputStream(f[i]) for i in range(bs)]
-  dec = [arithmeticcoding_fast.ArithmeticDecoder(32, bitin[i]) for i in range(bs)] """
+  dec = [arithmeticcoding_fast.ArithmeticDecoder(32, bitin[i]) for i in range(bs)]
 
   prob = np.ones(FLAGS.vocab_size)/FLAGS.vocab_size
   cumul = np.zeros(FLAGS.vocab_size+1, dtype = np.uint64)
   cumul[1:] = np.cumsum(prob*10000000 + 1)
-  print(f"BEFOR rank: {rank} series2d: {series_2d}")
-  # Decode first K symbols in each stream with uniform probabilities
-  for i in range(start_index, end_index):
-    for j in range(min(FLAGS.seq_len, iter_num_for_gpu)):
-      series_2d[i - start_index, j] = dec[i - start_index].read(cumul, FLAGS.vocab_size)
+  
+  for i in range(bs):
+    for j in range(min(FLAGS.seq_len, iter_num)):
+      series_2d[i,j] = dec[i].read(cumul, FLAGS.vocab_size)
 
   print(f"rank: {rank} series2d: {series_2d}")
 
-  cumul_batch = np.zeros((end_index - start_index, FLAGS.vocab_size+1), dtype = np.uint64)
-
+  cumul_batch = np.zeros((bs, FLAGS.vocab_size+1), dtype = np.uint64)
   
   np.random.seed(FLAGS.random_seed)
   torch.manual_seed(FLAGS.random_seed)
@@ -199,16 +180,14 @@ def decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last):
   print("Decode")
   print(iter_num_for_gpu)
 
-  """ if rank == world_size - 1:
-    iter_num_for_gpu = iter_num_for_gpu-FLAGS.seq_len """
-
-  """ iter_num_for_gpu = iter_num_for_gpu-FLAGS.seq_len """
-
   for train_index in range(iter_num_for_gpu-FLAGS.seq_len):
 
     model.train()
+    start_index_gpu = rank * (FLAGS.batch_size // world_size)
+    end_index_gpu = (rank + 1) * (FLAGS.batch_size // world_size)
     try:
-        train_batch = torch.LongTensor(series_2d[:, train_index:train_index + FLAGS.seq_len]).cuda()
+        """ train_batch = torch.LongTensor(series_2d[:, train_index:train_index + FLAGS.seq_len]).cuda() """
+        train_batch = torch.LongTensor(series_2d[:, train_index:train_index + FLAGS.seq_len][start_index_gpu:end_index_gpu]).cuda()
     except Exception as e:
         print(f"[ERROR] Fehler beim Laden des Batches: {e}")
         continue
@@ -234,14 +213,8 @@ def decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last):
         continue
 
     try:
-        for i in range(bs):
+        for i in range(start_index_gpu, end_index_gpu):
               series_2d[i, train_index + FLAGS.seq_len] = dec[i].read(cumul_batch[i, :], FLAGS.vocab_size)
-        """ if rank == world_size - 1:
-          for i in range(bs):
-              series_2d[i, train_index + FLAGS.seq_len] = dec[i].read(cumul_batch[i, :], FLAGS.vocab_size)
-        else:
-          for i in range(bs):
-              series_2d[i, train_index] = dec[i].read(cumul_batch[i, :], FLAGS.vocab_size) """
 
     except Exception as e:
         print(f"[ERROR] Fehler bei der arithmetischen Dekodierung: {e}")
@@ -250,7 +223,8 @@ def decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last):
     try:
         logits = logits.transpose(1, 2)
         
-        label = torch.from_numpy(series_2d[:, train_index + 1:train_index + FLAGS.seq_len + 1]).cuda()
+        """ label = torch.from_numpy(series_2d[:, train_index + 1:train_index + FLAGS.seq_len + 1]).cuda() """
+        label = torch.from_numpy(series_2d[:, train_index + 1:train_index + FLAGS.seq_len + 1][start_index_gpu:end_index_gpu]).cuda()
         label = label.type(torch.LongTensor).cuda()
     except Exception as e:
         print(f"[ERROR] Fehler beim Vorbereiten der Labels: {e}")
