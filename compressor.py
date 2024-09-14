@@ -197,6 +197,8 @@ def decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last):
   if rank == world_size - 1:
     iter_num_for_gpu = iter_num_for_gpu-FLAGS.seq_len
 
+  iter_num_for_gpu = iter_num_for_gpu-FLAGS.seq_len
+
   for train_index in range(iter_num_for_gpu):
 
     model.train()
@@ -227,12 +229,14 @@ def decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last):
         continue
 
     try:
-        if rank == world_size - 1:
-            for i in range(bs):
+        series_2d[i, train_index + FLAGS.seq_len] = dec[i].read(cumul_batch[i, :], FLAGS.vocab_size)
+        """ if rank == world_size - 1:
+          for i in range(bs):
               series_2d[i, train_index + FLAGS.seq_len] = dec[i].read(cumul_batch[i, :], FLAGS.vocab_size)
         else:
           for i in range(bs):
-              series_2d[i, train_index] = dec[i].read(cumul_batch[i, :], FLAGS.vocab_size)
+              series_2d[i, train_index] = dec[i].read(cumul_batch[i, :], FLAGS.vocab_size) """
+
     except Exception as e:
         print(f"[ERROR] Fehler bei der arithmetischen Dekodierung: {e}")
         continue
