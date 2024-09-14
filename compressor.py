@@ -589,18 +589,19 @@ def main(rank, world_size):
   
   len_series = len(series_partition)
   print(f"Rank {rank} series_partition: {series_partition} length: {len_series}")
-  if (len_series-FLAGS.seq_len) % FLAGS.batch_size == 0:
-    print("Decompression: Last part is a full batch.")
-    decode(main_temp_dir,compressed_file, FLAGS, len_series, 0)
-  else:
-    print("Decompression: Last part is not a full batch.")
-    last_length = (len_series - FLAGS.seq_len) % FLAGS.batch_size + FLAGS.seq_len
-    decode(main_temp_dir,compressed_file, FLAGS, len_series, last_length)
+  if rank == world_size - 1:
+    if (len_series-FLAGS.seq_len) % FLAGS.batch_size == 0:
+      print("Decompression: Last part is a full batch.")
+      decode(main_temp_dir,compressed_file, FLAGS, len_series, 0)
+    else:
+      print("Decompression: Last part is not a full batch.")
+      last_length = (len_series - FLAGS.seq_len) % FLAGS.batch_size + FLAGS.seq_len
+      decode(main_temp_dir,compressed_file, FLAGS, len_series, last_length)
   print(f"Rank {rank} completed decompression.")
   dist.barrier()
   print("Start combining files")
-  if rank == 0:
-    combine_decompressed_files(main_temp_dir, world_size, FLAGS.prefix + '.out')
+  """ if rank == 0:
+    combine_decompressed_files(main_temp_dir, world_size, FLAGS.prefix + '.out') """
 
   dist.destroy_process_group()
   
