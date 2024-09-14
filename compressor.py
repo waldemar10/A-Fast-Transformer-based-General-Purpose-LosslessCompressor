@@ -139,18 +139,19 @@ def decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last):
 
   bs = FLAGS.batch_size // torch.distributed.get_world_size()
 
-  iter_num = (len_series - FLAGS.seq_len) // FLAGS.batch_size
+  """ iter_num = (len_series - FLAGS.seq_len) // FLAGS.batch_size """
   iter_num_for_gpu = (len_series - FLAGS.seq_len) // (FLAGS.batch_size // world_size)
 
   """ iter_num = iter_num // world_size """
 
-  print(f"Iterationszahl pro Batch: {iter_num - FLAGS.seq_len}")
+  print(f"Iterationszahl pro Batch: {iter_num_for_gpu}")
 
   """ ind = np.array(range(bs))*iter_num """
-  ind = np.array(range(start_index, end_index)) * iter_num
+  """ ind = np.array(range(start_index, end_index)) * iter_num """
 
   """ series_2d = np.zeros((bs,iter_num), dtype = np.uint8).astype('int') """
   series_2d = np.zeros((bs,iter_num_for_gpu), dtype = np.uint8).astype('int')
+  
   """ print(series_2d) """
 
   """ temp_dir_rank = temp_dir + f"/rank_{rank}_temp" """
@@ -226,8 +227,12 @@ def decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last):
         continue
 
     try:
-        for i in range(bs):
-            series_2d[i, train_index + FLAGS.seq_len] = dec[i].read(cumul_batch[i, :], FLAGS.vocab_size)
+        if rank == world_size - 1:
+            for i in range(bs):
+              series_2d[i, train_index + FLAGS.seq_len] = dec[i].read(cumul_batch[i, :], FLAGS.vocab_size)
+        else:
+          for i in range(bs):
+              series_2d[i, train_index] = dec[i].read(cumul_batch[i, :], FLAGS.vocab_size)
     except Exception as e:
         print(f"[ERROR] Fehler bei der arithmetischen Dekodierung: {e}")
         continue
