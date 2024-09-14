@@ -282,9 +282,9 @@ def decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last):
   print(f"Created output file {output_file}")
   
   dist.barrier()
-  """ for i in range(bs):
+  for i in range(bs):
     bitin[i].close()
-    f[i].close() """
+    f[i].close()
  
   """ if last:
     series = np.zeros(last, dtype = np.uint8).astype('int')
@@ -303,22 +303,25 @@ def decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last):
     print(utils.decode_tokens(series))
     bitin.close()
     f.close() """
+  if rank == world_size - 1:
+    if last:
+          series = np.zeros(last, dtype=np.uint8).astype('int')
+          with open(os.path.join(temp_dir, compressed_file + '.last'), 'rb') as f:
+              bitin = arithmeticcoding_fast.BitInputStream(f)
+              dec = arithmeticcoding_fast.ArithmeticDecoder(32, bitin)
+              prob = np.ones(FLAGS.vocab_size) / FLAGS.vocab_size
+              cumul = np.zeros(FLAGS.vocab_size + 1, dtype=np.uint64)
+              cumul[1:] = np.cumsum(prob * 10000000 + 1)
 
-  if last:
-        series = np.zeros(last, dtype=np.uint8).astype('int')
-        with open(os.path.join(temp_dir, compressed_file + '.last'), 'rb') as f:
-            bitin = arithmeticcoding_fast.BitInputStream(f)
-            dec = arithmeticcoding_fast.ArithmeticDecoder(32, bitin)
-            prob = np.ones(FLAGS.vocab_size) / FLAGS.vocab_size
-            cumul = np.zeros(FLAGS.vocab_size + 1, dtype=np.uint64)
-            cumul[1:] = np.cumsum(prob * 10000000 + 1)
+              for j in range(last):
+                  series[j] = dec.read(cumul, FLAGS.vocab_size)
 
-            for j in range(last):
-                series[j] = dec.read(cumul, FLAGS.vocab_size)
-
-        with open(output_file, 'a', encoding='utf-8') as out:
-            out.write(utils.decode_tokens(series))
-            print(utils.decode_tokens(series))
+          with open(output_file, 'a', encoding='utf-8') as out:
+              out.write(utils.decode_tokens(series))
+              print(utils.decode_tokens(series))
+          
+          bitin.close()
+          f.close()
 
   """ log_resource_usage(start_time, "Decode", "analysis.txt",original_size=None, compressed_size=None, cpu_usage=avg_cpu_usage,
                         memory_usage=avg_memory_usage, gpu_usage=avg_gpu_usage) """
