@@ -149,7 +149,7 @@ def decode(rank,world_size,temp_dir,main_temp_dir, compressed_file, FLAGS, len_s
   temp_dir = os.path.join(main_temp_dir, f"rank_{count}_temp")
   for i in range(bs):
     
-    if(i >= bs2):
+    if(i >= bs2-1):
         bs2 += bs2
         count += 1
         temp_dir = os.path.join(main_temp_dir, f"rank_{count}_temp")
