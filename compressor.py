@@ -137,6 +137,7 @@ def decode(rank,world_size,temp_dir,main_temp_dir, compressed_file, FLAGS, len_s
   end_index = (rank + 1) * (FLAGS.batch_size // world_size)
 
   bs = FLAGS.batch_size
+  bs2 = bs // world_size
   iter_num = (len_series - FLAGS.seq_len) // FLAGS.batch_size
   
   iter_num_for_gpu = (len_series - FLAGS.seq_len) // bs
@@ -148,8 +149,8 @@ def decode(rank,world_size,temp_dir,main_temp_dir, compressed_file, FLAGS, len_s
   temp_dir = os.path.join(main_temp_dir, f"rank_{count}_temp")
   for i in range(bs):
     
-    if(i >= iter_num_for_gpu):
-        iter_num_for_gpu += iter_num_for_gpu
+    if(i >= bs2):
+        bs2 += bs2
         count += 1
         temp_dir = os.path.join(main_temp_dir, f"rank_{count}_temp")
     f = [open(temp_dir+"/"+compressed_file+'.'+str(i),'rb') for i in range(bs)]
