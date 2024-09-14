@@ -125,7 +125,7 @@ def log_resource_usage(start_time, phase, file_path, original_size=None, compres
             f.write(f"{phase} GPU Usage: {gpu_usage:.2f} %\n")
         f.write("\n")
 
-def decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last):
+def decode(rank,world_size,temp_dir,main_temp_dir, compressed_file, FLAGS, len_series, last):
 
   """ start_index = rank * (FLAGS.batch_size // torch.distributed.get_world_size())
   end_index = ((rank + 1) * (FLAGS.batch_size // torch.distributed.get_world_size())) """
@@ -144,10 +144,15 @@ def decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last):
   series_2d = np.zeros((bs,iter_num), dtype = np.uint8).astype('int')
 
   print(f"start_index: {start_index}, end_index: {end_index}, iter_num_for_gpu: {iter_num_for_gpu}")
-
-  f = [open(temp_dir+"/"+compressed_file+'.'+str(i),'rb') for i in range(bs)]
-  bitin = [arithmeticcoding_fast.BitInputStream(f[i]) for i in range(bs)]
-  dec = [arithmeticcoding_fast.ArithmeticDecoder(32, bitin[i]) for i in range(bs)]
+  count = 0
+  for i in range(bs):
+    if(i >= iter_num_for_gpu):
+        iter_num_for_gpu += iter_num_for_gpu
+        count += 1
+        temp_dir = os.path.join(main_temp_dir, f"rank_{count}_temp")
+    f = [open(temp_dir+"/"+compressed_file+'.'+str(i),'rb') for i in range(bs)]
+    bitin = [arithmeticcoding_fast.BitInputStream(f[i]) for i in range(bs)]
+    dec = [arithmeticcoding_fast.ArithmeticDecoder(32, bitin[i]) for i in range(bs)]
 
   prob = np.ones(FLAGS.vocab_size)/FLAGS.vocab_size
   cumul = np.zeros(FLAGS.vocab_size+1, dtype = np.uint64)
@@ -684,11 +689,11 @@ def main(rank, world_size):
   print(f"Rank {rank} series_partition: {series_partition} length: {len_series}")
   if (len_series-FLAGS.seq_len) % FLAGS.batch_size == 0:
     print("Decompression: Last part is a full batch.")
-    decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, 0)
+    decode(rank,world_size,temp_dir,main_temp_dir,  compressed_file, FLAGS, len_series, 0)
   else:
     print("Decompression: Last part is not a full batch.")
     last_length = (len_series - FLAGS.seq_len) % FLAGS.batch_size + FLAGS.seq_len
-    decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last_length)
+    decode(rank,world_size,temp_dir,main_temp_dir, compressed_file, FLAGS, len_series, last_length)
   print(f"Rank {rank} completed decompression.")
   dist.barrier()
   print("Start combining files")
