@@ -718,7 +718,8 @@ def main(rank, world_size):
 def combine_decompressed_files(main_temp_dir, num_gpus, output_file):
     with open(output_file, 'wb') as outfile:
         for rank in range(num_gpus):
-            input_file = os.path.join(main_temp_dir, f'decompressed_{rank}.out')
+            rank_temp_dir = os.path.join(main_temp_dir, f"rank_{rank}_temp")
+            input_file = os.path.join(rank_temp_dir, f'decompressed_{rank}.out')
             with open(input_file, 'rb') as infile:
                 outfile.write(infile.read())
     print(f"Combined decompressed files size: {os.path.getsize(output_file) / (1024 * 1024)} MB")
