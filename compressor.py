@@ -264,17 +264,19 @@ def decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last):
     if train_index % FLAGS.print_step == 0:
       print(f"Rank: {rank} {train_index} : {train_loss.item()/np.log(2)}")
   
-    
+  print(f"Rank {rank} Decoding completed.")
   """ out = open('tttdecompressed_out', 'w', encoding='utf-8')
   for i in range(len(series_2d)):
     out.write(utils.decode_tokens(series_2d[i]).encode('utf-8', errors='ignore').decode('utf-8')) """
-  
+  dist.barrier()
   output_file = os.path.join(temp_dir, f'decompressed_{rank}.out')
   with open(output_file, 'w', encoding='utf-8') as out:
         for i in range(bs):
             out.write(utils.decode_tokens(series_2d[i]).encode('utf-8', errors='ignore').decode('utf-8'))
+        
+  print(f"Created output file {output_file}")
   
-  
+  dist.barrier()
   """ for i in range(bs):
     bitin[i].close()
     f[i].close() """
@@ -697,11 +699,11 @@ def main(rank, world_size):
     print("Decompression: Last part is not a full batch.")
     last_length = (len_series - FLAGS.seq_len) % FLAGS.batch_size + FLAGS.seq_len
     decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last_length)
-
+  print(f"Rank {rank} completed decompression.")
   dist.barrier()
-
-  """ if rank == 0:
-    combine_decompressed_files(main_temp_dir, world_size, FLAGS.prefix + '.out') """
+  print("Start combining files")
+  if rank == 0:
+    combine_decompressed_files(main_temp_dir, world_size, FLAGS.prefix + '.out')
 
   dist.destroy_process_group()
   
@@ -711,9 +713,9 @@ def combine_decompressed_files(main_temp_dir, num_gpus, output_file):
             input_file = os.path.join(main_temp_dir, f'decompressed_{rank}.out')
             with open(input_file, 'rb') as infile:
                 outfile.write(infile.read())
-
+    print(f"Combined decompressed files size: {os.path.getsize(output_file) / (1024 * 1024)} MB")
             
-            """ os.remove(input_file) """
+    """ os.remove(input_file) """
 
 if __name__ == '__main__':
   world_size = torch.cuda.device_count() 
