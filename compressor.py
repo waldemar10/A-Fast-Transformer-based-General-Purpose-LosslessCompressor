@@ -584,10 +584,10 @@ def main(rank, world_size):
     f_out.close()
     f.close()
   
-  """ len_series = len(series) """
+  len_series = len(series)
   series_partition = series[start_idx:end_idx]
   
-  len_series = len(series_partition)
+  """ len_series = len(series_partition) """
   print(f"Rank {rank} series_partition: {series_partition} length: {len_series}")
   if rank == world_size - 1:
     if (len_series-FLAGS.seq_len) % FLAGS.batch_size == 0:
