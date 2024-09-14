@@ -133,18 +133,19 @@ def decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last):
   if rank == 0:
       start_time = time.time()
 
-  start_index = rank * (FLAGS.batch_size // torch.distributed.get_world_size())
+  start_index = rank * (FLAGS.batch_size // world_size)
   end_index = (rank + 1) * (FLAGS.batch_size // world_size)
-  end_index = min(end_index, len_series) 
+  """ end_index = min(end_index, len_series)  """
 
-  bs = FLAGS.batch_size // torch.distributed.get_world_size()
+  bs = FLAGS.batch_size // world_size
 
   """ iter_num = (len_series - FLAGS.seq_len) // FLAGS.batch_size """
-  iter_num_for_gpu = (len_series - FLAGS.seq_len) // (FLAGS.batch_size // world_size)
+  if rank == world_size - 1:
+    iter_num_for_gpu = (len_series - FLAGS.seq_len) // bs
+  else:
+    iter_num_for_gpu = (len_series) // bs
 
   """ iter_num = iter_num // world_size """
-
-  print(f"Iterationszahl pro Batch: {iter_num_for_gpu}")
 
   """ ind = np.array(range(bs))*iter_num """
   """ ind = np.array(range(start_index, end_index)) * iter_num """
@@ -153,7 +154,7 @@ def decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last):
   series_2d = np.zeros((bs,iter_num_for_gpu), dtype = np.uint8).astype('int')
   
   """ print(series_2d) """
-
+  print(f"start_index: {start_index}, end_index: {end_index}, iter_num_for_gpu: {iter_num_for_gpu}")
   """ temp_dir_rank = temp_dir + f"/rank_{rank}_temp" """
   f = [open(temp_dir + "/" + compressed_file + '.' + str(i), 'rb') for i in range(start_index,end_index)]
   bitin = [arithmeticcoding_fast.BitInputStream(f[i-start_index]) for i in range(start_index,end_index)]
@@ -171,7 +172,9 @@ def decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last):
   for i in range(start_index, end_index):
     for j in range(min(FLAGS.seq_len, iter_num_for_gpu)):
       series_2d[i - start_index, j] = dec[i - start_index].read(cumul, FLAGS.vocab_size)
-  
+
+  print(f"rank: {rank} series2d: {series_2d}")
+
   cumul_batch = np.zeros((end_index - start_index, FLAGS.vocab_size+1), dtype = np.uint64)
 
   
@@ -194,10 +197,10 @@ def decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last):
   print("Decode")
   print(iter_num_for_gpu)
 
-  """ if rank == world_size - 1:
-    iter_num_for_gpu = iter_num_for_gpu-FLAGS.seq_len """
+  if rank == world_size - 1:
+    iter_num_for_gpu = iter_num_for_gpu-FLAGS.seq_len
 
-  iter_num_for_gpu = iter_num_for_gpu-FLAGS.seq_len
+  """ iter_num_for_gpu = iter_num_for_gpu-FLAGS.seq_len """
 
   for train_index in range(iter_num_for_gpu):
 
