@@ -140,10 +140,12 @@ def decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last):
   bs = FLAGS.batch_size // world_size
 
   """ iter_num = (len_series - FLAGS.seq_len) // FLAGS.batch_size """
-  if rank == world_size - 1:
+  """ if rank == world_size - 1:
     iter_num_for_gpu = (len_series - FLAGS.seq_len) // bs
   else:
-    iter_num_for_gpu = (len_series) // bs
+    iter_num_for_gpu = (len_series) // bs """
+  
+  iter_num_for_gpu = (len_series - FLAGS.seq_len) // bs
 
   """ iter_num = iter_num // world_size """
 
@@ -157,8 +159,8 @@ def decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last):
   print(f"start_index: {start_index}, end_index: {end_index}, iter_num_for_gpu: {iter_num_for_gpu}")
   """ temp_dir_rank = temp_dir + f"/rank_{rank}_temp" """
   f = [open(temp_dir + "/" + compressed_file + '.' + str(i), 'rb') for i in range(start_index,end_index)]
-  bitin = [arithmeticcoding_fast.BitInputStream(f[i-start_index]) for i in range(start_index,end_index)]
-  dec = [arithmeticcoding_fast.ArithmeticDecoder(32, bitin[i-start_index]) for i in range(start_index,end_index)]
+  bitin = [arithmeticcoding_fast.BitInputStream(f[i]) for i in range(start_index,end_index)]
+  dec = [arithmeticcoding_fast.ArithmeticDecoder(32, bitin[i]) for i in range(start_index,end_index)]
 
   """ f = [open(temp_dir+"/"+compressed_file+'.'+str(i),'rb') for i in range(bs)]
   bitin = [arithmeticcoding_fast.BitInputStream(f[i]) for i in range(bs)]
@@ -197,12 +199,12 @@ def decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last):
   print("Decode")
   print(iter_num_for_gpu)
 
-  if rank == world_size - 1:
-    iter_num_for_gpu = iter_num_for_gpu-FLAGS.seq_len
+  """ if rank == world_size - 1:
+    iter_num_for_gpu = iter_num_for_gpu-FLAGS.seq_len """
 
   """ iter_num_for_gpu = iter_num_for_gpu-FLAGS.seq_len """
 
-  for train_index in range(iter_num_for_gpu):
+  for train_index in range(iter_num_for_gpu-FLAGS.seq_len):
 
     model.train()
     try:
@@ -702,7 +704,10 @@ def main(rank, world_size):
     f.close()
   
   """ len_series = len(series) """
+  series_partition = series[start_idx:end_idx]
+  
   len_series = len(series_partition)
+  print(f"Rank {rank} series_partition: {series_partition} length: {len_series}")
   if (len_series-FLAGS.seq_len) % FLAGS.batch_size == 0:
     print("Decompression: Last part is a full batch.")
     decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, 0)
