@@ -159,8 +159,8 @@ def decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last):
   print(f"start_index: {start_index}, end_index: {end_index}, iter_num_for_gpu: {iter_num_for_gpu}")
   """ temp_dir_rank = temp_dir + f"/rank_{rank}_temp" """
   f = [open(temp_dir + "/" + compressed_file + '.' + str(i), 'rb') for i in range(start_index,end_index)]
-  bitin = [arithmeticcoding_fast.BitInputStream(f[i]) for i in range(start_index,end_index)]
-  dec = [arithmeticcoding_fast.ArithmeticDecoder(32, bitin[i]) for i in range(start_index,end_index)]
+  bitin = [arithmeticcoding_fast.BitInputStream(f[i-start_index]) for i in range(start_index,end_index)]
+  dec = [arithmeticcoding_fast.ArithmeticDecoder(32, bitin[i-start_index]) for i in range(start_index,end_index)]
 
   """ f = [open(temp_dir+"/"+compressed_file+'.'+str(i),'rb') for i in range(bs)]
   bitin = [arithmeticcoding_fast.BitInputStream(f[i]) for i in range(bs)]
@@ -169,7 +169,7 @@ def decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last):
   prob = np.ones(FLAGS.vocab_size)/FLAGS.vocab_size
   cumul = np.zeros(FLAGS.vocab_size+1, dtype = np.uint64)
   cumul[1:] = np.cumsum(prob*10000000 + 1)
-
+  print(f"BEFOR rank: {rank} series2d: {series_2d}")
   # Decode first K symbols in each stream with uniform probabilities
   for i in range(start_index, end_index):
     for j in range(min(FLAGS.seq_len, iter_num_for_gpu)):
