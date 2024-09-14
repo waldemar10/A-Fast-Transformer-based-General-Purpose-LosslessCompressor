@@ -194,8 +194,8 @@ def decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last):
   print("Decode")
   print(iter_num_for_gpu)
 
-  if rank == world_size - 1:
-    iter_num_for_gpu = iter_num_for_gpu-FLAGS.seq_len
+  """ if rank == world_size - 1:
+    iter_num_for_gpu = iter_num_for_gpu-FLAGS.seq_len """
 
   iter_num_for_gpu = iter_num_for_gpu-FLAGS.seq_len
 
@@ -229,7 +229,8 @@ def decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last):
         continue
 
     try:
-        series_2d[i, train_index + FLAGS.seq_len] = dec[i].read(cumul_batch[i, :], FLAGS.vocab_size)
+        for i in range(bs):
+              series_2d[i, train_index + FLAGS.seq_len] = dec[i].read(cumul_batch[i, :], FLAGS.vocab_size)
         """ if rank == world_size - 1:
           for i in range(bs):
               series_2d[i, train_index + FLAGS.seq_len] = dec[i].read(cumul_batch[i, :], FLAGS.vocab_size)
