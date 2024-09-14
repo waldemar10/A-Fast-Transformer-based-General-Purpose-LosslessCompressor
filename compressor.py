@@ -145,7 +145,9 @@ def decode(rank,world_size,temp_dir,main_temp_dir, compressed_file, FLAGS, len_s
 
   print(f"start_index: {start_index}, end_index: {end_index}, iter_num_for_gpu: {iter_num_for_gpu}")
   count = 0
+  temp_dir = os.path.join(main_temp_dir, f"rank_{count}_temp")
   for i in range(bs):
+    
     if(i >= iter_num_for_gpu):
         iter_num_for_gpu += iter_num_for_gpu
         count += 1
