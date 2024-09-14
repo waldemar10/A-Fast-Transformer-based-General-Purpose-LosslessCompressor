@@ -584,10 +584,10 @@ def main(rank, world_size):
     f_out.close()
     f.close()
   
-  len_series = len(series)
+  """ len_series = len(series) """
   series_partition = series[start_idx:end_idx]
   
-  """ len_series = len(series_partition) """
+  len_series = len(series_partition)
   print(f"Rank {rank} series_partition: {series_partition} length: {len_series}")
   if rank == world_size - 1:
     if (len_series-FLAGS.seq_len) % FLAGS.batch_size == 0:
@@ -597,13 +597,13 @@ def main(rank, world_size):
       print("Decompression: Last part is not a full batch.")
       last_length = (len_series - FLAGS.seq_len) % FLAGS.batch_size + FLAGS.seq_len
       decode(main_temp_dir,compressed_file, FLAGS, len_series, last_length)
-  print(f"Rank {rank} completed decompression.")
-  dist.barrier()
-  print("Start combining files")
-  """ if rank == 0:
-    combine_decompressed_files(main_temp_dir, world_size, FLAGS.prefix + '.out') """
-
-  dist.destroy_process_group()
+    print(f"Rank {rank} completed decompression.")
+    dist.barrier()
+    print("Start combining files")
+    """ if rank == 0:
+      combine_decompressed_files(main_temp_dir, world_size, FLAGS.prefix + '.out') """
+  else:
+    dist.destroy_process_group()
   
 def combine_decompressed_files(main_temp_dir, num_gpus, output_file):
     with open(output_file, 'wb') as outfile:
