@@ -556,11 +556,11 @@ def main(rank, world_size):
         print(f"Hauptordner {main_temp_dir} erstellt.")
 
   dist.barrier()
-  temp_dir = os.path.join(main_temp_dir, f"rank_{rank}_temp")   
+  """ temp_dir = os.path.join(main_temp_dir, f"rank_{rank}_temp")   
 
   if not os.path.exists(temp_dir):
         os.mkdir(temp_dir)
-        print(f"Decompression: Rank {rank} erstellt Unterordner {temp_dir}")
+        print(f"Decompression: Rank {rank} erstellt Unterordner {temp_dir}") """
 
   """ dist.barrier() """
   #Split compressed file
@@ -570,14 +570,14 @@ def main(rank, world_size):
   start_index = rank * (FLAGS.batch_size // torch.distributed.get_world_size())
   end_index = ((rank + 1) * (FLAGS.batch_size // torch.distributed.get_world_size()))
   for i in range(start_index, end_index):
-    f_out = open(temp_dir+'/'+compressed_file+'.'+str(i),'wb')
+    f_out = open(main_temp_dir+'/'+compressed_file+'.'+str(i),'wb')
     byte_str_len = var_int_decode(f)
     byte_str = f.read(byte_str_len)
     f_out.write(byte_str)
     f_out.close()
   
   if rank == world_size - 1:
-    f_out = open(temp_dir+'/'+compressed_file+'.last','wb')
+    f_out = open(main_temp_dir+'/'+compressed_file+'.last','wb')
     byte_str_len = var_int_decode(f)
     byte_str = f.read(byte_str_len)
     f_out.write(byte_str)
@@ -591,11 +591,11 @@ def main(rank, world_size):
   print(f"Rank {rank} series_partition: {series_partition} length: {len_series}")
   if (len_series-FLAGS.seq_len) % FLAGS.batch_size == 0:
     print("Decompression: Last part is a full batch.")
-    decode(temp_dir,compressed_file, FLAGS, len_series, 0)
+    decode(main_temp_dir,compressed_file, FLAGS, len_series, 0)
   else:
     print("Decompression: Last part is not a full batch.")
     last_length = (len_series - FLAGS.seq_len) % FLAGS.batch_size + FLAGS.seq_len
-    decode(temp_dir,compressed_file, FLAGS, len_series, last_length)
+    decode(main_temp_dir,compressed_file, FLAGS, len_series, last_length)
   print(f"Rank {rank} completed decompression.")
   dist.barrier()
   print("Start combining files")
