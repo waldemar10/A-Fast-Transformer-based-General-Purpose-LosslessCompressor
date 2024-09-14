@@ -149,8 +149,8 @@ def decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last):
   """ ind = np.array(range(bs))*iter_num """
   ind = np.array(range(start_index, end_index)) * iter_num
 
-  series_2d = np.zeros((bs,iter_num), dtype = np.uint8).astype('int')
-
+  """ series_2d = np.zeros((bs,iter_num), dtype = np.uint8).astype('int') """
+  series_2d = np.zeros((bs,iter_num_for_gpu), dtype = np.uint8).astype('int')
   """ print(series_2d) """
 
   """ temp_dir_rank = temp_dir + f"/rank_{rank}_temp" """
@@ -168,7 +168,7 @@ def decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last):
 
   # Decode first K symbols in each stream with uniform probabilities
   for i in range(start_index, end_index):
-    for j in range(min(FLAGS.seq_len, iter_num)):
+    for j in range(min(FLAGS.seq_len, iter_num_for_gpu)):
       series_2d[i - start_index, j] = dec[i - start_index].read(cumul, FLAGS.vocab_size)
   
   cumul_batch = np.zeros((end_index - start_index, FLAGS.vocab_size+1), dtype = np.uint64)
@@ -665,7 +665,7 @@ def main(rank, world_size):
   #Split compressed file
   
   f = open(compressed_file+'.combined','rb')
-  len_series = len(series) 
+  """  len_series = len(series)  """
   start_index = rank * (FLAGS.batch_size // torch.distributed.get_world_size())
   end_index = ((rank + 1) * (FLAGS.batch_size // torch.distributed.get_world_size()))
   for i in range(start_index, end_index):
