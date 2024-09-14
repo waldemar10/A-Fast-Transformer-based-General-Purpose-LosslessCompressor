@@ -591,11 +591,11 @@ def main(rank, world_size):
   print(f"Rank {rank} series_partition: {series_partition} length: {len_series}")
   if (len_series-FLAGS.seq_len) % FLAGS.batch_size == 0:
     print("Decompression: Last part is a full batch.")
-    decode(rank,world_size,temp_dir,main_temp_dir,  compressed_file, FLAGS, len_series, 0)
+    decode(temp_dir,compressed_file, FLAGS, len_series, 0)
   else:
     print("Decompression: Last part is not a full batch.")
     last_length = (len_series - FLAGS.seq_len) % FLAGS.batch_size + FLAGS.seq_len
-    decode(rank,world_size,temp_dir,main_temp_dir, compressed_file, FLAGS, len_series, last_length)
+    decode(temp_dir,compressed_file, FLAGS, len_series, last_length)
   print(f"Rank {rank} completed decompression.")
   dist.barrier()
   print("Start combining files")
