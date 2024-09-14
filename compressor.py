@@ -125,155 +125,76 @@ def log_resource_usage(start_time, phase, file_path, original_size=None, compres
             f.write(f"{phase} GPU Usage: {gpu_usage:.2f} %\n")
         f.write("\n")
 
-def decode(rank,world_size,temp_dir,main_temp_dir, compressed_file, FLAGS, len_series, last):
-
-  """ start_index = rank * (FLAGS.batch_size // torch.distributed.get_world_size())
-  end_index = ((rank + 1) * (FLAGS.batch_size // torch.distributed.get_world_size())) """
-
-  if rank == 0:
-      start_time = time.time()
-
-  start_index = rank * (FLAGS.batch_size // world_size)
-  end_index = (rank + 1) * (FLAGS.batch_size // world_size)
-
+def decode(temp_dir, compressed_file, FLAGS, len_series, last):
+  
   bs = FLAGS.batch_size
-  bs2 = bs // world_size
+
   iter_num = (len_series - FLAGS.seq_len) // FLAGS.batch_size
   
-  iter_num_for_gpu = (len_series - FLAGS.seq_len) // bs
-
+  ind = np.array(range(bs))*iter_num
+  print(iter_num - FLAGS.seq_len)
   series_2d = np.zeros((bs,iter_num), dtype = np.uint8).astype('int')
 
-  print(f"start_index: {start_index}, end_index: {end_index}, iter_num_for_gpu: {iter_num_for_gpu}")
-  count = 0
-  temp_dir = os.path.join(main_temp_dir, f"rank_{count}_temp")
-  for i in range(bs):
-    
-    if(i >= bs2-1):
-        bs2 += bs2
-        count += 1
-        temp_dir = os.path.join(main_temp_dir, f"rank_{count}_temp")
-    f = [open(temp_dir+"/"+compressed_file+'.'+str(i),'rb') for i in range(bs)]
-    bitin = [arithmeticcoding_fast.BitInputStream(f[i]) for i in range(bs)]
-    dec = [arithmeticcoding_fast.ArithmeticDecoder(32, bitin[i]) for i in range(bs)]
+  f = [open(temp_dir+"/"+compressed_file+'.'+str(i),'rb') for i in range(bs)]
+  bitin = [arithmeticcoding_fast.BitInputStream(f[i]) for i in range(bs)]
+  dec = [arithmeticcoding_fast.ArithmeticDecoder(32, bitin[i]) for i in range(bs)]
 
   prob = np.ones(FLAGS.vocab_size)/FLAGS.vocab_size
   cumul = np.zeros(FLAGS.vocab_size+1, dtype = np.uint64)
   cumul[1:] = np.cumsum(prob*10000000 + 1)
-  
+
+  # Decode first K symbols in each stream with uniform probabilities
   for i in range(bs):
     for j in range(min(FLAGS.seq_len, iter_num)):
       series_2d[i,j] = dec[i].read(cumul, FLAGS.vocab_size)
-
-  print(f"rank: {rank} series2d: {series_2d}")
-
+  print(f"series_2d: {series_2d}")
   cumul_batch = np.zeros((bs, FLAGS.vocab_size+1), dtype = np.uint64)
-  
+
+  os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu_id
   np.random.seed(FLAGS.random_seed)
   torch.manual_seed(FLAGS.random_seed)
 
-  model = compress_model.SLiMPerformer(FLAGS.vocab_size, FLAGS.vocab_dim,
-                                        FLAGS.hidden_dim,FLAGS.n_layers, 
-                                        FLAGS.ffn_dim,FLAGS.n_heads, FLAGS.feature_type, 
-                                        FLAGS.compute_type).cuda()
-  """ print(model) """
+  model = compress_model.SLiMPerformer(FLAGS.vocab_size, FLAGS.vocab_dim, FLAGS.hidden_dim,FLAGS.n_layers, FLAGS.ffn_dim,FLAGS.n_heads, FLAGS.feature_type, FLAGS.compute_type).cuda()
+  print(model)
 
-  try:
-      model = DDP(model, device_ids=[rank])
-  except Exception as e:
-      print(f"DDP Initialization Error on rank {rank}: {e}")
-  
   optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate, weight_decay=FLAGS.weight_decay, betas=(.9, .999))
-  
-  print("Decode")
-  print(iter_num_for_gpu)
 
-  for train_index in range(iter_num_for_gpu-FLAGS.seq_len):
-
+  training_start = time.time()
+  for train_index in range(iter_num-FLAGS.seq_len):
     model.train()
-    start_index_gpu = rank * (FLAGS.batch_size // world_size)
-    end_index_gpu = (rank + 1) * (FLAGS.batch_size // world_size)
-    try:
-        """ train_batch = torch.LongTensor(series_2d[:, train_index:train_index + FLAGS.seq_len]).cuda() """
-        train_batch = torch.LongTensor(series_2d[:, train_index:train_index + FLAGS.seq_len][start_index_gpu:end_index_gpu]).cuda()
-    except Exception as e:
-        print(f"[ERROR] Fehler beim Laden des Batches: {e}")
-        continue
+    train_batch = torch.LongTensor(series_2d[:, train_index:train_index + FLAGS.seq_len]).cuda()
+    logits = model.forward(train_batch)
+    prob = logits[:, -1, :]
+    prob = F.softmax(prob, dim=1).detach().cpu().numpy()
     
-    
-    try:
-        logits = model.forward(train_batch)
-    except Exception as e:
-        print(f"[ERROR] Fehler beim Modellvorlauf: {e}")
-        continue
-    
-    try:
-        prob = logits[:, -1, :]
-        prob = F.softmax(prob, dim=1).detach().cpu().numpy()
-    except Exception as e:
-        print(f"[ERROR] Fehler bei der Softmax-Berechnung: {e}")
-        continue
-    
-    try:
-        cumul_batch[:, 1:] = np.cumsum(prob * 10000000 + 1, axis=1)
-    except Exception as e:
-        print(f"[ERROR] Fehler beim Berechnen der kumulierten Wahrscheinlichkeiten: {e}")
-        continue
+    cumul_batch[:,1:] = np.cumsum(prob*10000000 + 1, axis = 1)
 
-    try:
-        for i in range(start_index_gpu, end_index_gpu):
-              series_2d[i, train_index + FLAGS.seq_len] = dec[i].read(cumul_batch[i, :], FLAGS.vocab_size)
-
-    except Exception as e:
-        print(f"[ERROR] Fehler bei der arithmetischen Dekodierung: {e}")
-        continue
+    # Decode with Arithmetic Encoder
+    for i in range(bs):
+      series_2d[i,train_index+FLAGS.seq_len] = dec[i].read(cumul_batch[i,:], FLAGS.vocab_size)
     
-    try:
-        logits = logits.transpose(1, 2)
-        
-        """ label = torch.from_numpy(series_2d[:, train_index + 1:train_index + FLAGS.seq_len + 1]).cuda() """
-        label = torch.from_numpy(series_2d[:, train_index + 1:train_index + FLAGS.seq_len + 1][start_index_gpu:end_index_gpu]).cuda()
-        label = label.type(torch.LongTensor).cuda()
-    except Exception as e:
-        print(f"[ERROR] Fehler beim Vorbereiten der Labels: {e}")
-        continue
-    
-    try:
-        train_loss = torch.nn.functional.cross_entropy(logits[:, :, -1], label[:, -1], reduction='mean')
-
-        train_loss.backward()
-    except Exception as e:
-        print(f"[ERROR] Fehler beim Berechnen des Verlusts oder Backpropagation: {e}")
-        continue
-    
-    try:
-        optimizer.step()
-        optimizer.zero_grad(set_to_none=True)
-    except Exception as e:
-        print(f"[ERROR] Fehler beim Optimierungsschritt oder Zurücksetzen der Gradienten: {e}")
-        continue
+    logits = logits.transpose(1, 2)
+    label = torch.from_numpy(series_2d[:, train_index+1:train_index+FLAGS.seq_len+1]).cuda()
+    label = label.type(torch.LongTensor).cuda()
+    train_loss = torch.nn.functional.cross_entropy(logits[:, :, -1], label[:, -1], reduction='mean')
+    train_loss.backward()
+    optimizer.step()
+    optimizer.zero_grad(set_to_none=True)
     
     if train_index % FLAGS.print_step == 0:
-      print(f"Rank: {rank} {train_index} : {train_loss.item()/np.log(2)}")
+      print(train_index, ":", train_loss.item()/np.log(2))
   
-  print(f"Rank {rank} Decoding completed.")
-  """ out = open('tttdecompressed_out', 'w', encoding='utf-8')
+    
+  out = open('tttdecompressed_out', 'w', encoding='utf-8')
   for i in range(len(series_2d)):
-    out.write(utils.decode_tokens(series_2d[i]).encode('utf-8', errors='ignore').decode('utf-8')) """
-  dist.barrier()
-  output_file = os.path.join(temp_dir, f'decompressed_{rank}.out')
-  with open(output_file, 'w', encoding='utf-8') as out:
-        for i in range(bs):
-            out.write(utils.decode_tokens(series_2d[i]).encode('utf-8', errors='ignore').decode('utf-8'))
-        
-  print(f"Created output file {output_file}")
+    out.write(utils.decode_tokens(series_2d[i]).encode('utf-8', errors='ignore').decode('utf-8'))
   
-  dist.barrier()
+  
   for i in range(bs):
     bitin[i].close()
     f[i].close()
- 
-  """ if last:
+
+  if last:
     series = np.zeros(last, dtype = np.uint8).astype('int')
     f = open(temp_dir+"/"+compressed_file+'.last','rb')
     bitin = arithmeticcoding_fast.BitInputStream(f)
@@ -289,31 +210,9 @@ def decode(rank,world_size,temp_dir,main_temp_dir, compressed_file, FLAGS, len_s
     out.write(utils.decode_tokens(series))
     print(utils.decode_tokens(series))
     bitin.close()
-    f.close() """
-  if rank == world_size - 1:
-    if last:
-          series = np.zeros(last, dtype=np.uint8).astype('int')
-          with open(os.path.join(temp_dir, compressed_file + '.last'), 'rb') as f:
-              bitin = arithmeticcoding_fast.BitInputStream(f)
-              dec = arithmeticcoding_fast.ArithmeticDecoder(32, bitin)
-              prob = np.ones(FLAGS.vocab_size) / FLAGS.vocab_size
-              cumul = np.zeros(FLAGS.vocab_size + 1, dtype=np.uint64)
-              cumul[1:] = np.cumsum(prob * 10000000 + 1)
+    f.close()
 
-              for j in range(last):
-                  series[j] = dec.read(cumul, FLAGS.vocab_size)
-
-          with open(output_file, 'a', encoding='utf-8') as out:
-              out.write(utils.decode_tokens(series))
-              print(utils.decode_tokens(series))
-          
-          bitin.close()
-          f.close()
-
-  """ log_resource_usage(start_time, "Decode", "analysis.txt",original_size=None, compressed_size=None, cpu_usage=avg_cpu_usage,
-                        memory_usage=avg_memory_usage, gpu_usage=avg_gpu_usage) """
-  return
- 
+    return
 
 def encode(rank,world_size,seq_len, temp_dir, compressed_file, FLAGS, series, train_data, last_train_data):
     
