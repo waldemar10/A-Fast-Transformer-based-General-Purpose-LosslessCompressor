@@ -577,7 +577,7 @@ def main(rank, world_size):
   end_idx = start_idx + num_batches_per_gpu  #fix out of bounds error
 
   series_partition = series[start_idx:end_idx]
-  iter_num = len(l) // FLAGS.batch_size // world_size
+  iter_num = l // FLAGS.batch_size // world_size
   dist.barrier()
   if rank == world_size - 1:
       if total_length % FLAGS.batch_size == 0:
