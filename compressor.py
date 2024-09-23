@@ -447,8 +447,8 @@ def encode(rank,world_size,seq_len, temp_dir, compressed_file, FLAGS, series, tr
         
         ind += 1
 
-        if rank == world_size - 1:
-            print(f"[DEBUG] Rank {rank} train_index: {train_index}, ind: {ind}, len(train_data): {len(train_data)}")
+        """ if rank == world_size - 1:
+            print(f"[DEBUG] Rank {rank} train_index: {train_index}, ind: {ind}, len(train_data): {len(train_data)}") """
         ind = np.clip(ind, 0, len(train_data) - 1) # Fix out of bounds error
         # Periodic output
         if train_index % FLAGS.print_step == 0:
