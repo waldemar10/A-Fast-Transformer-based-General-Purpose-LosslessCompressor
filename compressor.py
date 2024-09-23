@@ -411,7 +411,9 @@ def encode(rank,world_size,seq_len, temp_dir, compressed_file, FLAGS, series, tr
     
     optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate, weight_decay=FLAGS.weight_decay, betas=(.9, .999))
     
-    print(iter_num_for_gpu)
+    print(f"rank: {rank} iter_num_for_gpu: {iter_num_for_gpu}")
+    if len(ind) > 0:
+      print(f"rank: {rank} Last entry in ind: {ind[-1]}")
     dist.barrier()
     for train_index in range(iter_num_for_gpu):     
         model.train()
