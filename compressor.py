@@ -446,13 +446,9 @@ def encode(rank,world_size,seq_len, temp_dir, compressed_file, FLAGS, series, tr
                 print(f"[ERROR] Encoder write failed for index {i}: {e}")
         
         ind += 1
-        if isinstance(train_data, np.ndarray):
-            if ind >= train_data.shape[0]:
-                print(f"[DEBUG] ind {ind} is out of bounds for train_data with length {train_data.shape[0]}")
-        else:
-            if ind >= len(train_data):
-                print(f"[DEBUG] ind {ind} is out of bounds for train_data with length {len(train_data)}")
 
+        if rank == world_size - 1:
+            print(f"[DEBUG] Rank {rank} train_index: {train_index}, ind: {ind}, len(train_data): {len(train_data)}")
         ind = np.clip(ind, 0, len(train_data) - 1) # Fix out of bounds error
         # Periodic output
         if train_index % FLAGS.print_step == 0:
