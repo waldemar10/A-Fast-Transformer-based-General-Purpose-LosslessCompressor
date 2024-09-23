@@ -337,7 +337,7 @@ def decode(rank,world_size,temp_dir, compressed_file, FLAGS, len_series, last):
   return
  
 
-def encode(rank,world_size,seq_len, temp_dir, compressed_file, FLAGS, series, train_data, last_train_data):
+def encode(rank,world_size,seq_len,iter_num, temp_dir, compressed_file, FLAGS, series, train_data, last_train_data):
     
     print(f"Number of GPUs available: {torch.cuda.device_count()}")
     print(f"Current GPU: {torch.cuda.current_device()} - {torch.cuda.get_device_name(torch.cuda.current_device())}")
@@ -371,9 +371,9 @@ def encode(rank,world_size,seq_len, temp_dir, compressed_file, FLAGS, series, tr
     cumul = np.zeros(FLAGS.vocab_size+1, dtype=np.uint64)
     cumul[1:] = np.cumsum(prob*10000000 + 1)
     
-    
+    print(f"rank: {rank} iter_num: {iter_num}")
     """ iter_num = len(train_data) // FLAGS.batch_size """
-    iter_num = len(train_data) // (FLAGS.batch_size * world_size)
+    """ iter_num = len(train_data) // (FLAGS.batch_size * world_size) """
     # New iteration depending on the number of GPUs
     iter_num_for_gpu = len(train_data) // (FLAGS.batch_size // world_size)
     print(f"Rank {rank} iter_num_for_gpu: {iter_num_for_gpu} + len(train_data): {len(train_data)}")
@@ -577,18 +577,18 @@ def main(rank, world_size):
   end_idx = start_idx + num_batches_per_gpu  #fix out of bounds error
 
   series_partition = series[start_idx:end_idx]
-  
+  iter_num = len(l) // FLAGS.batch_size // world_size
   dist.barrier()
   if rank == world_size - 1:
       if total_length % FLAGS.batch_size == 0:
-        encode(rank,world_size,FLAGS.seq_len, temp_dir, compressed_file, FLAGS, series_partition, train_data[start_idx:end_idx], None)
+        encode(rank,world_size,FLAGS.seq_len,iter_num, temp_dir, compressed_file, FLAGS, series_partition, train_data[start_idx:end_idx], None)
       else:
         print(f"REST Rank {rank} processing last data from index {end_idx} to {total_length - 1} train_data[start_idx:l]: {train_data[start_idx:l]}")
         series_partition = series[start_idx:end_idx + FLAGS.seq_len]
         train_data_partition = train_data[start_idx:end_idx]
-        encode(rank,world_size,FLAGS.seq_len, temp_dir, compressed_file, FLAGS, series_partition, train_data_partition, series[end_idx:])
+        encode(rank,world_size,FLAGS.seq_len,iter_num, temp_dir, compressed_file, FLAGS, series_partition, train_data_partition, series[end_idx:])
   else:
-      encode(rank,world_size,FLAGS.seq_len, temp_dir, compressed_file, FLAGS, series_partition, train_data[start_idx:end_idx], None)
+      encode(rank,world_size,FLAGS.seq_len,iter_num, temp_dir, compressed_file, FLAGS, series_partition, train_data[start_idx:end_idx], None)
  
   
   dist.barrier()
